@@ -33,6 +33,8 @@ fi
 echo "→ Пакеты"
 apt-get update -qq
 apt-get install -y -qq curl git ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https >/dev/null
+# Распознавание фото и сканов бланков прямо на сервере
+apt-get install -y -qq tesseract-ocr tesseract-ocr-rus poppler-utils imagemagick >/dev/null
 
 if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 22 ]; then
   echo "→ Node.js 22"

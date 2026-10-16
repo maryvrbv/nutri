@@ -287,13 +287,26 @@ test('11. При ошибке распознавания доступен руч
   // Фото без OCR — сразу ручной ввод
   const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(100)]);
   const up2 = await client.raw('POST', '/api/clients/me/documents?name=photo.jpg', jpg, { 'content-type': 'image/jpeg' });
-  const d2 = await waitFor(async () => { const d = await client.get(`/api/documents/${up2.body.id}`); return d.body.status === 'needs_review' ? d.body : undefined; });
+  const d2 = await waitFor(async () => { const d = await client.get(`/api/documents/${up2.body.id}`); return ['needs_review', 'error'].includes(d.body.status) ? d.body : undefined; }, 15000);
   assert.equal(d2.results.length, 0);
-  assert.ok(d2.error);
+  assert.ok(d2.error, 'есть подсказка внести значения вручную');
 
   // Неподдерживаемый формат
   const txt = await client.raw('POST', '/api/clients/me/documents?name=a.txt', Buffer.from('hello'), { 'content-type': 'text/plain' });
   assert.equal(txt.status, 415);
+});
+
+test('Фото бланка распознаётся локальным OCR, все значения помечены для проверки', async (t) => {
+  const { hasOcr } = await import('../src/recognition.ts');
+  if (!(await hasOcr())) return t.skip('Tesseract не установлен');
+  const { readFileSync } = await import('node:fs');
+  const photo = readFileSync(new URL('../../samples/blank-invitro-photo.jpg', import.meta.url));
+  const up = await client.raw('POST', '/api/clients/me/documents?name=photo.jpg&force=1', photo, { 'content-type': 'image/jpeg' });
+  const d = await waitFor(async () => { const x = await client.get(`/api/documents/${up.body.id}`); return x.body.status === 'needs_review' ? x.body : undefined; }, 60000);
+  assert.ok(d.results.length >= 4);
+  assert.ok(d.results.every((r: any) => r.low_confidence.includes('value')));
+  assert.equal(d.results.find((r: any) => r.analyte_code === 'ferritin')?.value_num, 21.5);
+  await client.del(`/api/documents/${up.body.id}`);
 });
 
 test('Напоминания уважают тихие часы и отметки', async () => {

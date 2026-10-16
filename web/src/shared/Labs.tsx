@@ -292,7 +292,7 @@ export function DocumentReview({ base }: { clientId?: string; base: string }) {
               </div>
             </div>
           )}
-          {doc.status === 'error' && <button className="btn ghost small mt-16" disabled={busy} onClick={() => act(() => api.post(`/documents/${id}/retry`))}><Icon name="refresh" size={16} />Распознать ещё раз</button>}
+          {(doc.status === 'error' || (doc.status === 'needs_review' && doc.results.length === 0)) && <button className="btn ghost small mt-16" disabled={busy} onClick={() => act(() => api.post(`/documents/${id}/retry`))}><Icon name="refresh" size={16} />Распознать ещё раз</button>}
           <button className="btn ghost small mt-16" onClick={remove} style={{ color: 'var(--danger)' }}><Icon name="trash" size={16} />Удалить документ</button>
         </div>
       </div>

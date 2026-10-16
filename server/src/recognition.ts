@@ -1,3 +1,8 @@
+import { execFile } from 'node:child_process';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { KNOWN_UNIT_PATTERN, findAnalyte, matchAnalyteAtStart, normalizeUnit, type Analyte } from './reference.ts';
 
 export type RecognizedRow = {
@@ -26,10 +31,9 @@ export type Recognition = {
 
 /**
  * Распознаватель — сменный модуль. Встроенный разбирает PDF с текстовым слоем
- * (большинство бланков из личных кабинетов лабораторий). Фото и сканы требуют
- * внешнего OCR-сервиса: его можно подключить только после решения о передаче
- * данных внешним сервисам (ТЗ, раздел 12), поэтому по умолчанию он выключен
- * и пользователь вносит значения вручную.
+ * (большинство бланков из личных кабинетов лабораторий), а фото и сканы — локальным
+ * Tesseract, если он установлен на сервере. Данные внешним сервисам не передаются.
+ * Без Tesseract пользователь вносит значения вручную.
  */
 export interface Recognizer {
   name: string;
@@ -179,6 +183,63 @@ async function pdfLines(file: Buffer): Promise<{ pages: number; lines: string[] 
   }
 }
 
+const run = promisify(execFile);
+
+let ocrAvailable: Promise<boolean> | null = null;
+/** Есть ли на сервере Tesseract с русским языком. Распознавание идёт локально, файл никуда не передаётся. */
+export function hasOcr() {
+  ocrAvailable ??= run('tesseract', ['--list-langs'], { timeout: 10_000 })
+    .then(({ stdout, stderr }) => /\brus\b/.test(stdout + stderr))
+    .catch(() => false);
+  return ocrAvailable;
+}
+
+async function ocrImage(path: string) {
+  // psm 6 — единый блок текста: так строки таблицы бланка не разваливаются на колонки
+  const { stdout } = await run('tesseract', [path, 'stdout', '-l', 'rus+eng', '--psm', '6'], { timeout: 180_000, maxBuffer: 10 * 1024 * 1024 });
+  return stdout;
+}
+
+/** Фото или скан → текст. Временные файлы удаляются сразу после распознавания. */
+async function ocr(file: Buffer, mime: string): Promise<{ text: string; pages: number }> {
+  const dir = await mkdtemp(join(tmpdir(), 'nutri-ocr-'));
+  try {
+    if (mime === 'application/pdf') {
+      await writeFile(join(dir, 'doc.pdf'), file);
+      await run('pdftoppm', ['-r', '300', '-gray', '-png', '-l', '10', join(dir, 'doc.pdf'), join(dir, 'p')], { timeout: 180_000 });
+      const pages = (await readdir(dir)).filter((f) => f.startsWith('p') && f.endsWith('.png')).sort();
+      const texts: string[] = [];
+      for (const pg of pages) texts.push(await ocrImage(join(dir, pg)));
+      return { text: texts.join('\n'), pages: pages.length };
+    }
+    const ext = mime === 'image/png' ? 'png' : 'jpg';
+    const src = join(dir, `img.${ext}`);
+    await writeFile(src, file);
+    // Мелкий шрифт Tesseract читает плохо: небольшие изображения увеличиваем и переводим в серое.
+    // -auto-orient учитывает поворот фото с телефона.
+    let input = src;
+    try {
+      await run('convert', [src, '-auto-orient', '-colorspace', 'Gray', '-resize', '2400x2400<', join(dir, 'prep.png')], { timeout: 60_000 });
+      input = join(dir, 'prep.png');
+    } catch { /* ImageMagick не установлен — распознаём как есть */ }
+    return { text: await ocrImage(input), pages: 1 };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** После OCR значения нужно сверить целиком: помечаем каждую строку как требующую проверки результата. */
+function fromOcr(name: string, pages: number, text: string): Recognition {
+  const r = parseText(text);
+  const rows = r.rows.map((x) => ({ ...x, low_confidence: [...new Set(['value', ...x.low_confidence])] }));
+  return {
+    recognizer: name, pages, text_found: text.replace(/\s/g, '').length > 20, ...r, rows,
+    note: rows.length
+      ? 'Распознано по изображению — сверьте каждое значение с бланком.'
+      : 'Не удалось прочитать показатели на изображении. Попробуйте фото чётче и без бликов или внесите значения вручную.',
+  };
+}
+
 export const builtinRecognizer: Recognizer = {
   name: 'builtin-pdf-text-1',
   async recognize(file, mime) {
@@ -186,10 +247,18 @@ export const builtinRecognizer: Recognizer = {
       const { pages, lines } = await pdfLines(file);
       const text = lines.join('\n');
       if (text.replace(/\s/g, '').length < 20) {
+        if (await hasOcr()) {
+          const o = await ocr(file, mime);
+          return fromOcr('builtin-ocr-tesseract-1', o.pages, o.text);
+        }
         return { recognizer: this.name, pages, text_found: false, lab: null, collected_at: null, patient_name: null, rows: [], note: 'В PDF нет текстового слоя (похоже на скан). Внесите значения вручную.' };
       }
       const r = parseText(text);
       return { recognizer: this.name, pages, text_found: true, ...r, note: r.rows.length ? undefined : 'Не удалось найти показатели в документе. Внесите значения вручную.' };
+    }
+    if (await hasOcr()) {
+      const o = await ocr(file, mime);
+      return fromOcr('builtin-ocr-tesseract-1', o.pages, o.text);
     }
     return { recognizer: 'none', pages: 1, text_found: false, lab: null, collected_at: null, patient_name: null, rows: [], note: 'Распознавание фото пока не подключено. Внесите значения вручную — это займёт пару минут.' };
   },

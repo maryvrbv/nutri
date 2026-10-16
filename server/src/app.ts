@@ -524,8 +524,9 @@ export function createApp(deps: AppDeps) {
   }));
   app.post('/api/documents/:id/retry', h((req) => {
     const { docId } = docAccess(req);
-    const d = get(db, 'SELECT status FROM documents WHERE id = ?', docId)!;
-    if (d.status !== 'error') throw new HttpError(409, 'bad_state', 'Повторить можно только после ошибки');
+    const d = get(db, 'SELECT status, (SELECT COUNT(*) FROM results r WHERE r.document_id = documents.id) AS n FROM documents WHERE id = ?', docId)!;
+    // Повтор — после ошибки или если распознавание ничего не нашло (например, фото загрузили до подключения OCR)
+    if (!(d.status === 'error' || (d.status === 'needs_review' && d.n === 0))) throw new HttpError(409, 'bad_state', 'Повторить можно только после ошибки или если значений нет');
     run(db, `DELETE FROM results WHERE document_id = ? AND source = 'recognized'`, docId);
     setImmediate(() => { labs.processDocument(db, files, recognizer, docId).catch(() => {}); });
   }));

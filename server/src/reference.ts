@@ -62,7 +62,7 @@ export const ANALYTES: Analyte[] = [
     source: ML('hemoglobin-test', 'Hemoglobin Test'),
   },
   {
-    code: 'tsh', name: 'ТТГ', aliases: ['ттг', 'тиреотропный гормон', 'tsh', 'тиреотропный гормон (ттг)'],
+    code: 'tsh', name: 'ТТГ', aliases: ['ттг', 'тиреотропный гормон', 'tsh', 'тиреотропный гормон (ттг)', 'tтг', 'ttг', 'ттr', 'ttr', 'ttp', 'tip'],
     baseUnit: 'мМЕ/л', factors: { 'мМЕ/л': 1 },
     about: 'ТТГ (тиреотропный гормон) вырабатывается гипофизом и регулирует работу щитовидной железы.',
     source: ML('tsh-thyroid-stimulating-hormone-test', 'TSH Test'),
