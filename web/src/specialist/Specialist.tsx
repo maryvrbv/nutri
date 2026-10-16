@@ -287,7 +287,7 @@ export function ClientLabsTab() {
 }
 export function ClientUploadTab() {
   const { id = '' } = useParams();
-  return <div style={{ maxWidth: 640 }}><h2 style={{ marginBottom: 12 }}>Загрузить анализ клиента</h2><UploadForm clientId={id} base={`/clients/${id}/labs`} /></div>;
+  return <div style={{ maxWidth: 640 }}><h2 style={{ marginBottom: 12 }}>Добавить анализ клиента</h2><UploadForm clientId={id} base={`/clients/${id}/labs`} /></div>;
 }
 export function ClientDocTab() {
   const { id = '' } = useParams();

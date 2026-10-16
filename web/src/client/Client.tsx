@@ -43,7 +43,7 @@ export function ClientLabs() {
     <div className="page">
       <div className="page-head">
         <div><div className="eyebrow">Результаты и документы</div><h1>Анализы</h1></div>
-        <Link to="/labs/upload" className="btn primary icon" aria-label="Загрузить анализ"><Icon name="plus" /></Link>
+        <Link to="/labs/upload" className="btn primary icon" aria-label="Добавить анализ"><Icon name="plus" /></Link>
       </div>
       <LabsOverview clientId="me" base="/labs" />
     </div>
@@ -53,7 +53,7 @@ export function ClientUpload() {
   return (
     <div className="page">
       <Link to="/labs" className="back"><Icon name="left" size={18} />Анализы</Link>
-      <div className="page-head"><h1>Загрузить анализ</h1></div>
+      <div className="page-head"><h1>Добавить анализ</h1></div>
       <UploadForm clientId="me" base="/labs" />
     </div>
   );

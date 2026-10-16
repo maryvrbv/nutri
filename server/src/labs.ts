@@ -52,7 +52,7 @@ export function upload(db: DB, files: FileStore, actor: User, ownerId: string, i
   if (input.file.length > MAX_FILE) throw new HttpError(413, 'too_large', 'Файл больше 20 МБ');
   const mime = sniffMime(input.file);
   if (!mime) throw new HttpError(415, 'unsupported', 'Поддерживаются PDF, JPG и PNG');
-  if (input.collected_at && !isDate(input.collected_at)) throw bad('Неверная дата забора');
+  if (input.collected_at && !isDate(input.collected_at)) throw bad('Неверная дата анализа');
   const hash = sha256(input.file);
   if (!input.force) {
     const same = get(db, 'SELECT id, file_name, uploaded_at FROM documents WHERE owner_id = ? AND sha256 = ?', ownerId, hash);
@@ -70,6 +70,30 @@ export function upload(db: DB, files: FileStore, actor: User, ownerId: string, i
     input.lab?.trim() || null, input.collected_at || null, nowIso());
   audit(db, { actor: actor.id, client: ownerId, entity: 'document', entity_id: docId, action: 'uploaded', data: { mime } });
   return docId;
+}
+
+/**
+ * Анализ, внесённый вручную, без файла. Значения вводит сам человек, поэтому документ
+ * сразу подтверждается; интервалы подставляются справочные.
+ */
+export function createManualDocument(db: DB, actor: User, ownerId: string, input: any) {
+  if (!isDate(input?.collected_at)) throw bad('Укажите дату анализа', { field: 'collected_at' });
+  const rows = (Array.isArray(input?.results) ? input.results : []).filter((r: any) => String(r?.name ?? '').trim() || String(r?.value_text ?? '').trim());
+  if (!rows.length) throw bad('Добавьте хотя бы один показатель');
+  if (rows.length > 100) throw bad('Слишком много показателей');
+  return tx(db, () => {
+    const docId = id();
+    run(db, `INSERT INTO documents (id, owner_id, uploaded_by, file_name, mime, size, sha256, storage_key, lab, collected_at, uploaded_at, status, recognizer)
+      VALUES (?,?,?,?, 'manual', 0, ?, '', ?, ?, ?, 'needs_review', 'manual')`,
+      docId, ownerId, actor.id, 'Ручной ввод', `manual:${docId}`, String(input.lab ?? '').trim().slice(0, 100) || null, input.collected_at, nowIso());
+    audit(db, { actor: actor.id, client: ownerId, entity: 'document', entity_id: docId, action: 'created_manually' });
+    rows.forEach((r: any, i: number) => {
+      try { addResult(db, actor, docId, r); }
+      catch (e) { if (e instanceof HttpError) throw new HttpError(400, 'bad_request', `Строка ${i + 1}: ${e.message}`, { row: i }); throw e; }
+    });
+    confirmDocument(db, actor, docId);
+    return docId;
+  });
 }
 
 function nameTokens(s: string) {
@@ -219,7 +243,7 @@ export function updateDocumentMeta(db: DB, actor: User, docId: string, input: { 
   const doc = get(db, 'SELECT * FROM documents WHERE id = ?', docId);
   if (!doc) throw notFound();
   assertEditable(doc);
-  if (input.collected_at !== undefined && !isDate(input.collected_at)) throw bad('Неверная дата забора');
+  if (input.collected_at !== undefined && !isDate(input.collected_at)) throw bad('Неверная дата анализа');
   const lab = input.lab !== undefined ? String(input.lab).trim().slice(0, 100) || null : doc.lab;
   const collected = input.collected_at ?? doc.collected_at;
   run(db, 'UPDATE documents SET lab = ?, collected_at = ? WHERE id = ?', lab, collected, docId);
@@ -250,7 +274,7 @@ export function confirmDocument(db: DB, actor: User, docId: string) {
   if (!doc) throw notFound();
   if (doc.status !== 'needs_review' && doc.status !== 'error') throw new HttpError(409, 'bad_state', 'Документ нельзя подтвердить в текущем статусе');
   if (doc.ownership === 'needs_check') throw new HttpError(409, 'ownership', 'Сначала подтвердите, что документ принадлежит владельцу профиля');
-  if (!doc.collected_at) throw bad('Укажите дату забора материала', { field: 'collected_at' });
+  if (!doc.collected_at) throw bad('Укажите дату анализа', { field: 'collected_at' });
   const results = all(db, 'SELECT * FROM results WHERE document_id = ?', docId);
   if (results.length === 0) throw bad('Добавьте хотя бы один показатель');
   const now = nowIso();

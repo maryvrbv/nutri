@@ -59,7 +59,7 @@ export function LabsOverview({ clientId, base }: { clientId: string; base: strin
                 <Icon name="file" className="chev" />
                 <div className="grow">
                   <div className="list-title">{doc.lab ?? doc.file_name}</div>
-                  <div className="small muted">{doc.collected_at ? `забор ${fmtDate(doc.collected_at)}` : `загружен ${fmtDateTime(doc.uploaded_at)}`} · {doc.uploaded_by_name}</div>
+                  <div className="small muted">{doc.collected_at ? `анализ от ${fmtDate(doc.collected_at)}` : `загружен ${fmtDateTime(doc.uploaded_at)}`} · {doc.uploaded_by_name}</div>
                 </div>
                 <DocBadge status={doc.status} />
                 <Icon name="right" className="chev" />
@@ -72,7 +72,7 @@ export function LabsOverview({ clientId, base }: { clientId: string; base: strin
       <div className="card">
         <div className="card-head"><h2>Показатели</h2><span className="subtle">последние подтверждённые</span></div>
         {d.data.latest.length === 0 ? (
-          <Empty icon="flask" title="Пока нет подтверждённых результатов">{ty('Загрузите бланк из лаборатории — мы распознаем значения, а вы их проверите.')}</Empty>
+          <Empty icon="flask" title="Пока нет подтверждённых результатов">{ty('Загрузите бланк из лаборатории или внесите значения вручную.')}</Empty>
         ) : (
           <div className="list">
             {d.data.latest.map((r) => (
@@ -93,7 +93,7 @@ export function LabsOverview({ clientId, base }: { clientId: string; base: strin
       </div>
 
       <div className="card">
-        <div className="card-head"><h2>Документы</h2><Link to={`${base}/upload`} className="btn small primary"><Icon name="upload" size={16} />Загрузить</Link></div>
+        <div className="card-head"><h2>Документы</h2><Link to={`${base}/upload`} className="btn small primary"><Icon name="plus" size={16} />Добавить</Link></div>
         {d.data.documents.length === 0 ? <p className="small muted">Документов пока нет</p> : (
           <div className="list">
             {d.data.documents.map((doc) => (
@@ -113,70 +113,126 @@ export function LabsOverview({ clientId, base }: { clientId: string; base: strin
   );
 }
 
-// ---------- Загрузка ----------
+// ---------- Добавление анализа ----------
 
+/** Два способа: автоматически — только файл, вручную — только поля. */
 export function UploadForm({ clientId, base }: { clientId: string; base: string }) {
+  const [mode, setMode] = useState<'auto' | 'manual'>('auto');
+  return (
+    <div className="stack" style={{ '--gap': '16px' } as any}>
+      <Seg label="Способ" value={mode} onChange={setMode} options={[{ value: 'auto', label: 'Автоматически' }, { value: 'manual', label: 'Вручную' }]} />
+      {mode === 'auto' ? <AutoUpload clientId={clientId} base={base} /> : <ManualEntry clientId={clientId} base={base} />}
+    </div>
+  );
+}
+
+function AutoUpload({ clientId, base }: { clientId: string; base: string }) {
   const nav = useNavigate();
-  const [file, setFile] = useState<File | null>(null);
-  const [lab, setLab] = useState('');
-  const [date, setDate] = useState('');
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [dup, setDup] = useState<any>(null);
+  const [dup, setDup] = useState<{ data: any; file: File } | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
+  // Файл отправляется сразу после выбора: лабораторию и дату распознаем из бланка, их можно поправить на проверке
+  const send = async (file: File, force = false) => {
+    setBusy(true); setErr(''); setDup(null);
+    try {
+      const q = new URLSearchParams({ name: file.name, ...(force ? { force: '1' } : {}) });
+      const r = await api.upload<{ id: string }>(`/clients/${clientId}/documents?${q}`, file);
+      nav(`${base}/documents/${r.id}`, { replace: true });
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'duplicate') setDup({ data: e.data, file });
+      else setErr(errorText(e));
+    } finally { setBusy(false); }
+  };
   const pick = (f?: File | null) => {
     setErr(''); setDup(null);
     if (!f) return;
     if (!['application/pdf', 'image/jpeg', 'image/png'].includes(f.type)) { setErr('Подойдёт PDF, JPG или PNG'); return; }
     if (f.size > 20 * 1024 * 1024) { setErr('Файл больше 20 МБ'); return; }
-    setFile(f);
+    send(f);
   };
   const onDrop = (e: DragEvent) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files?.[0]); };
-  const submit = async (force = false) => {
-    if (!file) return;
-    setBusy(true); setErr('');
-    try {
-      const q = new URLSearchParams({ name: file.name, ...(lab ? { lab } : {}), ...(date ? { collected_at: date } : {}), ...(force ? { force: '1' } : {}) });
-      const r = await api.upload<{ id: string }>(`/clients/${clientId}/documents?${q}`, file);
-      nav(`${base}/documents/${r.id}`, { replace: true });
-    } catch (e) {
-      if (e instanceof ApiError && e.code === 'duplicate') setDup(e.data);
-      else setErr(errorText(e));
-    } finally { setBusy(false); }
-  };
 
   return (
     <div className="stack" style={{ '--gap': '16px' } as any}>
-      <div className={`dropzone ${drag ? 'drag' : ''}`} onClick={() => input.current?.click()} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}
-        role="button" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && input.current?.click()} aria-label="Выбрать файл анализа">
-        <Icon name={file ? 'file' : 'upload'} />
-        {file ? (
-          <><p className="list-title mt-8">{file.name}</p><p className="small muted">{fileSize(file.size)} · нажмите, чтобы выбрать другой</p></>
-        ) : (
-          <><p className="list-title mt-8">Выберите файл или сделайте фото</p><p className="small muted">PDF, JPG или PNG до 20 МБ, можно многостраничный PDF</p></>
-        )}
-        <input ref={input} type="file" accept="application/pdf,image/jpeg,image/png" capture={undefined} hidden onChange={(e) => pick(e.target.files?.[0])} />
-      </div>
-      <div className="grid-2">
-        <Field label="Лаборатория" htmlFor="up-lab" hint="Если не укажете, попробуем найти в бланке"><input id="up-lab" className="input" value={lab} onChange={(e) => setLab(e.target.value)} placeholder="Например, Инвитро" /></Field>
-        <Field label="Дата забора" htmlFor="up-date" hint="Можно уточнить позже"><input id="up-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+      <div className={`dropzone ${drag ? 'drag' : ''}`} onClick={() => !busy && input.current?.click()} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}
+        role="button" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && input.current?.click()} aria-label="Выбрать файл анализа" aria-busy={busy}>
+        {busy ? <div className="spinner" style={{ margin: '8px auto' }} /> : <Icon name="upload" />}
+        <p className="list-title mt-8">{busy ? 'Загружаем…' : 'Выберите файл или сделайте фото'}</p>
+        <p className="small muted">{ty('PDF из личного кабинета лаборатории, фото или скан бланка')}</p>
+        <input ref={input} type="file" accept="application/pdf,image/jpeg,image/png" hidden onChange={(e) => pick(e.target.files?.[0])} />
       </div>
       {err && <Notice kind="danger">{err}</Notice>}
       {dup && (
         <Notice kind="warn">
-          <b>{dup.message}</b>
-          <div className="small">Загружен {fmtDateTime(dup.duplicate.uploaded_at)}: {dup.duplicate.file_name}</div>
+          <b>{dup.data.message}</b>
+          <div className="small">Загружен {fmtDateTime(dup.data.duplicate.uploaded_at)}: {dup.data.duplicate.file_name}</div>
           <div className="row wrap mt-8">
-            <Link className="btn small" to={`${base}/documents/${dup.duplicate.id}`}>Открыть загруженный</Link>
-            <button className="btn small ghost" onClick={() => submit(true)}>Всё равно загрузить</button>
+            <Link className="btn small" to={`${base}/documents/${dup.data.duplicate.id}`}>Открыть загруженный</Link>
+            <button className="btn small ghost" onClick={() => send(dup.file, true)}>Всё равно загрузить</button>
           </div>
         </Notice>
       )}
-      <button className="btn primary block" disabled={!file || busy} onClick={() => submit(false)}>{busy ? 'Загружаем…' : 'Загрузить и распознать'}</button>
-      <p className="subtle">{ty('Файл хранится в зашифрованном виде и доступен только вам и специалисту, которому вы открыли доступ.')}</p>
+      <p className="subtle">{ty('Мы распознаем значения, лабораторию и дату анализа, а вы их проверите. Файл хранится в зашифрованном виде.')}</p>
     </div>
+  );
+}
+
+type ManualRow = { k: string; name: string; value_text: string; unit: string };
+const emptyRow = (): ManualRow => ({ k: Math.random().toString(36).slice(2), name: '', value_text: '', unit: '' });
+
+function ManualEntry({ clientId, base }: { clientId: string; base: string }) {
+  const nav = useNavigate();
+  const toast = useToast();
+  const ref = useData(() => api.get<{ code: string; name: string; unit: string }[]>('/reference/analytes'), []);
+  const [lab, setLab] = useState('');
+  const [date, setDate] = useState('');
+  const [rows, setRows] = useState<ManualRow[]>([emptyRow()]);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const setRow = (k: string, patch: Partial<ManualRow>) => setRows(rows.map((r) => (r.k === k ? { ...r, ...patch } : r)));
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!date) { setErr('Укажите дату анализа'); return; }
+    const filled = rows.filter((r) => r.name.trim() || r.value_text.trim());
+    if (!filled.length) { setErr('Добавьте хотя бы один показатель'); return; }
+    setBusy(true); setErr('');
+    try {
+      const r = await api.post<{ id: string }>(`/clients/${clientId}/documents/manual`, { lab, collected_at: date, results: filled });
+      toast('Анализ сохранён');
+      nav(`${base}/documents/${r.id}`, { replace: true });
+    } catch (e) { setErr(errorText(e)); } finally { setBusy(false); }
+  };
+  return (
+    <form className="stack" style={{ '--gap': '16px' } as any} onSubmit={submit}>
+      <div className="grid-2">
+        <Field label="Дата анализа" htmlFor="mn-date"><input id="mn-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Лаборатория" htmlFor="mn-lab" hint="Необязательно"><input id="mn-lab" className="input" value={lab} onChange={(e) => setLab(e.target.value)} placeholder="Инвитро" /></Field>
+      </div>
+      <div className="card tight">
+        {rows.map((r, i) => (
+          <div key={r.k} className="manual-row">
+            <div className="field name">
+              <label htmlFor={`mn-n-${r.k}`}>Показатель {rows.length > 1 ? i + 1 : ''}</label>
+              <input id={`mn-n-${r.k}`} className="input" list="analytes" value={r.name} placeholder="Например, ферритин" onChange={(e) => {
+                const a = ref.data?.find((x) => x.name === e.target.value);
+                setRow(r.k, { name: e.target.value, unit: a && !r.unit ? a.unit : r.unit });
+              }} />
+            </div>
+            <div className="field"><label htmlFor={`mn-v-${r.k}`}>Результат</label><input id={`mn-v-${r.k}`} className="input" inputMode="decimal" value={r.value_text} placeholder="58" onChange={(e) => setRow(r.k, { value_text: e.target.value })} /></div>
+            <div className="field"><label htmlFor={`mn-u-${r.k}`}>Единицы</label><input id={`mn-u-${r.k}`} className="input" value={r.unit} placeholder="нг/мл" onChange={(e) => setRow(r.k, { unit: e.target.value })} /></div>
+            {rows.length > 1 && <button type="button" className="btn ghost icon small del" onClick={() => setRows(rows.filter((x) => x.k !== r.k))} aria-label="Убрать строку"><Icon name="trash" size={18} /></button>}
+          </div>
+        ))}
+        <datalist id="analytes">{ref.data?.map((a) => <option key={a.code} value={a.name} />)}</datalist>
+        <button type="button" className="btn outline block mt-8" onClick={() => setRows([...rows, emptyRow()])}><Icon name="plus" />Ещё показатель</button>
+      </div>
+      <p className="tiny muted">{ty('Интервал вводить не нужно: подставим справочный для взрослых и подпишем, откуда он.')}</p>
+      {err && <Notice kind="danger">{err}</Notice>}
+      <button className="btn primary block" disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить анализ'}</button>
+    </form>
   );
 }
 
@@ -187,6 +243,7 @@ const toDraft = (r: Result): Draft => ({ name: r.name, value_text: r.value_text,
 
 /** Интервал не редактируется: он из бланка или справочный — и это подписано. */
 export function RefInfo({ r }: { r: Pick<Result, 'ref_text' | 'ref_source' | 'ref_note'> }) {
+  const isClient = useAuth().me?.role === 'client';
   if (r.ref_text) {
     return (
       <div>
@@ -195,7 +252,7 @@ export function RefInfo({ r }: { r: Pick<Result, 'ref_text' | 'ref_source' | 're
       </div>
     );
   }
-  return <div className="tiny muted">{r.ref_note === 'sex' ? 'укажите пол в профиле' : 'нет интервала'}</div>;
+  return <div className="tiny muted">{r.ref_note === 'sex' ? (isClient ? <Link to="/settings">укажите пол в профиле</Link> : 'не указан пол клиента') : 'нет интервала'}</div>;
 }
 
 export function DocumentReview({ base }: { clientId?: string; base: string }) {
@@ -228,7 +285,7 @@ export function DocumentReview({ base }: { clientId?: string; base: string }) {
   const saveMeta = () => act(() => api.patch(`/documents/${id}`, { lab: meta.lab, collected_at: meta.collected_at || undefined }));
   const confirm = async () => {
     if (meta.lab !== (doc.lab ?? '') || meta.collected_at !== (doc.collected_at ?? '')) {
-      if (!meta.collected_at) { toast('Укажите дату забора'); return; }
+      if (!meta.collected_at) { toast('Укажите дату анализа'); return; }
       await api.patch(`/documents/${id}`, { lab: meta.lab, collected_at: meta.collected_at }).catch(() => {});
     }
     act(() => api.post(`/documents/${id}/confirm`), 'Результаты подтверждены и добавлены в динамику');
@@ -243,7 +300,7 @@ export function DocumentReview({ base }: { clientId?: string; base: string }) {
       <div className="row between wrap">
         <div>
           <h1 style={{ fontSize: 24 }}>{doc.lab ?? doc.file_name}</h1>
-          <p className="small muted">Загрузил(а) {doc.uploaded_by_name} · {fmtDateTime(doc.uploaded_at)}{doc.pages ? ` · ${doc.pages} стр.` : ''}</p>
+          <p className="small muted">{doc.mime === 'manual' ? 'Внёс(ла)' : 'Загрузил(а)'} {doc.uploaded_by_name} · {fmtDateTime(doc.uploaded_at)}{doc.pages ? ` · ${doc.pages} стр.` : ''}</p>
         </div>
         <DocBadge status={doc.status} />
       </div>
@@ -264,24 +321,26 @@ export function DocumentReview({ base }: { clientId?: string; base: string }) {
       {doc.error && doc.status !== 'confirmed' && <Notice kind={doc.status === 'error' ? 'danger' : 'warn'}>{doc.error}</Notice>}
 
       <div className="review">
-        <div className="viewer">
+        {doc.mime === 'manual' ? (
+          <div className="viewer" style={{ padding: 20 }}><p className="small muted">{ty('Анализ внесён вручную, без файла бланка.')}</p></div>
+        ) : <div className="viewer">
           {doc.mime === 'application/pdf'
             ? <Suspense fallback={<div style={{ padding: 24 }}><div className="spinner" /></div>}><PdfView src={`/api/documents/${id}/file`} /></Suspense>
             : <img src={`/api/documents/${id}/file`} alt="Исходный документ" />}
           <div className="row between" style={{ padding: '8px 12px' }}><span className="small muted">Исходный файл</span><a className="small" href={`/api/documents/${id}/file`} target="_blank" rel="noreferrer">Открыть отдельно</a></div>
-        </div>
+        </div>}
 
         <div className="card">
           <div className="grid-2">
             <Field label="Лаборатория" htmlFor="m-lab"><input id="m-lab" className="input" value={meta.lab} disabled={!editable} onChange={(e) => setMeta({ ...meta, lab: e.target.value })} onBlur={() => editable && meta.lab !== (doc.lab ?? '') && saveMeta()} /></Field>
-            <Field label="Дата забора" htmlFor="m-date" error={editable && !meta.collected_at ? 'Нужна для динамики' : undefined}><input id="m-date" type="date" className="input" value={meta.collected_at} disabled={!editable} onChange={(e) => setMeta({ ...meta, collected_at: e.target.value })} onBlur={() => editable && meta.collected_at && meta.collected_at !== doc.collected_at && saveMeta()} /></Field>
+            <Field label="Дата анализа" htmlFor="m-date" error={editable && !meta.collected_at ? 'Нужна для динамики' : undefined}><input id="m-date" type="date" className="input" value={meta.collected_at} disabled={!editable} onChange={(e) => setMeta({ ...meta, collected_at: e.target.value })} onBlur={() => editable && meta.collected_at && meta.collected_at !== doc.collected_at && saveMeta()} /></Field>
           </div>
 
           <div className="row between mt-24">
             <h3>Значения</h3>
             {editable && lowCount > 0 && <span className="badge warn">Проверьте выделенные: {lowCount}</span>}
           </div>
-          {editable && <p className="small muted mt-8">{ty('Сверьте с исходным бланком. Исправленные значения сохранятся вместе с распознанным оригиналом.')}</p>}
+          {editable && <p className="small muted mt-8">{doc.mime === 'manual' ? ty('Проверьте значения перед подтверждением.') : ty('Сверьте с исходным бланком. Исправленные значения сохранятся вместе с распознанным оригиналом.')}</p>}
 
           <div className="mt-8">
             <div className="rrow rrow-head"><span>Показатель</span><span>Результат</span><span>Единицы</span><span>Интервал</span><span /></div>
@@ -305,7 +364,7 @@ export function DocumentReview({ base }: { clientId?: string; base: string }) {
               </div>
             </div>
           )}
-          {(doc.status === 'error' || doc.status === 'needs_review') && <button className="btn ghost small mt-16" disabled={busy} onClick={() => act(() => api.post(`/documents/${id}/retry`))}><Icon name="refresh" size={16} />Распознать ещё раз</button>}
+          {doc.mime !== 'manual' && (doc.status === 'error' || doc.status === 'needs_review') && <button className="btn ghost small mt-16" disabled={busy} onClick={() => act(() => api.post(`/documents/${id}/retry`))}><Icon name="refresh" size={16} />Распознать ещё раз</button>}
           <button className="btn ghost small mt-16" onClick={remove} style={{ color: 'var(--danger)' }}><Icon name="trash" size={16} />Удалить документ</button>
         </div>
       </div>
@@ -332,7 +391,7 @@ function ResultRow({ r, editable, onChange }: { r: Result; editable: boolean; on
   if (!editable) {
     return (
       <div className="rrow">
-        <div className="name"><b>{r.name}</b>{r.edited_by_name && <div className="tiny muted">исправил(а) {r.edited_by_name}{r.recognized ? `, распознано: ${r.recognized.value_text} ${r.recognized.unit}` : ''}</div>}</div>
+        <div className="name"><b>{r.name}</b>{r.edited_by_name && r.source !== 'manual' && <div className="tiny muted">исправил(а) {r.edited_by_name}{r.recognized ? `, распознано: ${r.recognized.value_text} ${r.recognized.unit}` : ''}</div>}</div>
         <div className="num"><b>{r.value_text}</b> {r.lab_flag && <span className="badge warn">{r.lab_flag}</span>}</div>
         <div>{r.unit || '—'}</div>
         <RefInfo r={r} />
@@ -427,7 +486,7 @@ export function AnalytePage({ clientId, base, role }: { clientId: string; base: 
         </div>
         <div className="table-wrap mt-16">
           <table className="table">
-            <thead><tr><th>Дата забора</th><th className="num">Результат</th><th>Интервал</th><th>Лаборатория</th><th /></tr></thead>
+            <thead><tr><th>Дата анализа</th><th className="num">Результат</th><th>Интервал</th><th>Лаборатория</th><th /></tr></thead>
             <tbody>
               {[...s.points].reverse().map((p: any) => (
                 <tr key={p.result_id}>

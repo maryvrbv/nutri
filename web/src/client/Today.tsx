@@ -139,7 +139,7 @@ export function TodayPage() {
                   <h3>Схемы приёма пока нет</h3>
                   <p className="small">{ty('Когда специалист опубликует схему, здесь появится план на каждый день. А пока можно загрузить анализы или заполнить дневник.')}</p>
                   <div className="row wrap mt-16" style={{ justifyContent: 'center' }}>
-                    <Link className="btn" to="/labs/upload"><Icon name="upload" />Загрузить анализ</Link>
+                    <Link className="btn" to="/labs/upload"><Icon name="plus" />Добавить анализ</Link>
                   </div>
                 </div>
               )}

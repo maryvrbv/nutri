@@ -181,7 +181,7 @@ export function createApp(deps: AppDeps) {
       profile: me(u),
       access: q('SELECT l.consented_at, l.revoked_at, l.scopes, s.name AS specialist FROM care_links l LEFT JOIN users s ON s.id = l.specialist_id WHERE l.client_id = ?'),
       documents: q('SELECT id, file_name, mime, lab, collected_at, uploaded_at, status FROM documents WHERE owner_id = ?')
-        .map((d) => ({ ...d, file_url: `/api/documents/${d.id}/file` })),
+        .map((d) => ({ ...d, file_url: d.mime === 'manual' ? null : `/api/documents/${d.id}/file` })),
       results: q('SELECT name, analyte_code, value_text, value_num, unit, ref_text, lab_flag, collected_at, status, source, recognized FROM results WHERE owner_id = ?'),
       explanations: q('SELECT e.* FROM explanations e JOIN results r ON r.id = e.result_id WHERE r.owner_id = ?'),
       comments: q(`SELECT kind, target_type, target_id, body, created_at FROM comments WHERE client_id = ? AND kind != 'internal'`),
@@ -484,6 +484,11 @@ export function createApp(deps: AppDeps) {
     return { id: docId };
   }));
 
+  app.post('/api/clients/:clientId/documents/manual', h((req) => {
+    const { u, cid } = client(req);
+    return { id: labs.createManualDocument(db, u, cid, req.body) };
+  }));
+
   const docAccess = (req: Request) => {
     const u = auth(req);
     const owner = labs.documentOwner(db, String(req.params.id));
@@ -498,6 +503,7 @@ export function createApp(deps: AppDeps) {
   app.get('/api/documents/:id/file', h((req, res) => {
     const { docId } = docAccess(req);
     const d = get(db, 'SELECT storage_key, mime, file_name FROM documents WHERE id = ?', docId)!;
+    if (d.mime === 'manual') throw notFound();
     const buf = files.read(d.storage_key);
     res.setHeader('Content-Type', d.mime);
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(d.file_name)}`);
@@ -532,7 +538,8 @@ export function createApp(deps: AppDeps) {
   }));
   app.post('/api/documents/:id/retry', h((req) => {
     const { docId } = docAccess(req);
-    const d = get(db, 'SELECT status, (SELECT COUNT(*) FROM results r WHERE r.document_id = documents.id) AS n FROM documents WHERE id = ?', docId)!;
+    const d = get(db, 'SELECT status, mime FROM documents WHERE id = ?', docId)!;
+    if (d.mime === 'manual') throw new HttpError(409, 'bad_state', 'Анализ внесён вручную — распознавать нечего');
     // Повтор — после ошибки или если распознавание ничего не нашло (например, фото загрузили до подключения OCR)
     // Повтор — до подтверждения: распознанные строки заменяются, внесённые вручную остаются
     if (d.status !== 'error' && d.status !== 'needs_review') throw new HttpError(409, 'bad_state', 'Подтверждённый документ сначала откройте на проверку');

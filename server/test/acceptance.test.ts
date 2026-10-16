@@ -334,6 +334,20 @@ test('Интервал берётся из бланка или справочн�
   await client.del(`/api/documents/${up.body.id}`);
 });
 
+test('Ручной ввод анализа без файла', async () => {
+  assert.equal((await client.post('/api/clients/me/documents/manual', { results: [{ name: 'Магний', value_text: '0,8', unit: 'ммоль/л' }] })).status, 400, 'нужна дата анализа');
+  const r = await client.post('/api/clients/me/documents/manual', { lab: 'Гемотест', collected_at: '2026-10-11', results: [
+    { name: 'Магний', value_text: '0,8', unit: 'ммоль/л' }, { name: '', value_text: '' }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const d = (await client.get(`/api/documents/${r.body.id}`)).body;
+  assert.equal(d.status, 'confirmed');
+  assert.equal(d.mime, 'manual');
+  assert.equal(d.results.length, 1);
+  assert.equal(d.results[0].ref_source, 'reference');
+  assert.equal((await client.get(`/api/documents/${r.body.id}/file`)).status, 404);
+  await client.del(`/api/documents/${r.body.id}`);
+});
+
 test('Напоминания уважают тихие часы и отметки', async () => {
   // 17.10 (суббота) 09:00 МСК: витамин D
   setNow('2026-10-17T06:00:30Z');
