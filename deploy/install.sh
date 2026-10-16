@@ -105,13 +105,62 @@ BK
 chmod 755 /usr/local/bin/nutri-backup
 echo "30 3 * * * nutri /usr/local/bin/nutri-backup" > /etc/cron.d/nutri-backup
 
-# Обновление одной короткой командой: sudo nutri-update
-cat > /usr/local/bin/nutri-update <<'UPD'
+# Обновление вручную одной командой: sudo nutri-update
+cat > /usr/local/bin/nutri-update <<UPD
 #!/usr/bin/env bash
 set -e
-bash /opt/nutri/deploy/install.sh
+git -C $APP fetch -q origin "$BRANCH" && git -C $APP reset -q --hard "origin/$BRANCH"
+bash $APP/deploy/install.sh
 UPD
 chmod 755 /usr/local/bin/nutri-update
+
+# Автообновление: каждые 5 минут проверяем, есть ли новый код. Перед обновлением — копия базы;
+# если сборка или запуск не удались, возвращаем прошлую версию.
+cat > /usr/local/bin/nutri-autoupdate <<AUTO
+#!/usr/bin/env bash
+set -uo pipefail
+exec 9>/run/nutri-update.lock
+flock -n 9 || exit 0
+git -C $APP fetch -q origin "$BRANCH" || exit 0
+OLD=\$(git -C $APP rev-parse HEAD)
+NEW=\$(git -C $APP rev-parse "origin/$BRANCH")
+[ "\$OLD" = "\$NEW" ] && exit 0
+echo "Обновление \${OLD:0:7} → \${NEW:0:7}"
+sudo -u nutri /usr/local/bin/nutri-backup || true
+healthy() { for i in \$(seq 1 20); do curl -fsS -o /dev/null http://localhost:3000/api/auth/options && return 0; sleep 1; done; return 1; }
+if git -C $APP reset -q --hard "\$NEW" && bash $APP/deploy/install.sh && healthy; then
+  echo "Готово"
+else
+  echo "Не получилось — возвращаю \${OLD:0:7}"
+  git -C $APP reset -q --hard "\$OLD"
+  cd $APP && npm ci --no-audit --no-fund --loglevel=error && npm run build --silent >/dev/null
+  systemctl restart nutri
+  exit 1
+fi
+AUTO
+chmod 755 /usr/local/bin/nutri-autoupdate
+
+cat > /etc/systemd/system/nutri-autoupdate.service <<UNIT
+[Unit]
+Description=Nutri: автообновление
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nutri-autoupdate
+UNIT
+
+cat > /etc/systemd/system/nutri-autoupdate.timer <<UNIT
+[Unit]
+Description=Nutri: проверка обновлений каждые 5 минут
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+UNIT
 
 if [ -z "${DOMAIN:-}" ]; then
   IP=$(curl -fsS https://api.ipify.org || curl -fsS https://ifconfig.me)
@@ -126,6 +175,7 @@ CF
 
 systemctl daemon-reload
 systemctl enable -q --now nutri
+systemctl enable -q --now nutri-autoupdate.timer
 systemctl restart nutri caddy
 sleep 2
 systemctl is-active -q nutri && echo "✓ Сервис запущен"
@@ -133,7 +183,7 @@ systemctl is-active -q nutri && echo "✓ Сервис запущен"
 echo
 echo "Готово: https://$DOMAIN"
 echo "Первый зарегистрированный аккаунт — специалист, дальше только по приглашениям."
-echo "Обновить сервис потом: sudo nutri-update"
+echo "Новый код ставится сам каждые 5 минут. Журнал: journalctl -u nutri-autoupdate"
 if [ "${NEWKEY:-}" = 1 ]; then
   echo
   echo "Сохраните ключ шифрования в надёжном месте (без него файлы анализов не расшифровать):"
