@@ -21,6 +21,15 @@ if [ "$(awk '/MemTotal/ {print $2}' /proc/meminfo)" -lt 2000000 ] && ! swapon --
   grep -q /swapfile /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
 fi
 
+# В образах Cloud.ru пакеты берутся с внутреннего зеркала, которое доступно не из всех сетей.
+# Если оно не отвечает, переключаемся на зеркало Яндекса с официальными пакетами Ubuntu.
+if grep -rqs 'sbercloud' /etc/apt/sources.list /etc/apt/sources.list.d/ && ! getent hosts repo.mng.sbercloud.tech >/dev/null; then
+  echo "→ Переключаю репозитории Ubuntu на mirror.yandex.ru"
+  for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [ -f "$f" ] && sed -i -E 's#https?://repo\.mng\.sbercloud\.tech/repository/ubuntu/?#http://mirror.yandex.ru/ubuntu/#g' "$f"
+  done
+fi
+
 echo "→ Пакеты"
 apt-get update -qq
 apt-get install -y -qq curl git ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https >/dev/null
