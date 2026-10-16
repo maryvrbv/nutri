@@ -16,6 +16,22 @@ if (typeof window !== 'undefined') {
 }
 let installedNow = false;
 
+// Цвет системных полос телефона: одна метка theme-color под текущую тему.
+// Некоторые сборки Chrome игнорируют media в метках и берут первую — поэтому выставляем явно и следим за сменой темы.
+function syncThemeColor() {
+  const dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  const color = dark ? '#15121E' : '#F7F4FB';
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
+  const m = document.createElement('meta');
+  m.name = 'theme-color';
+  m.content = color;
+  document.head.appendChild(m);
+}
+if (typeof window !== 'undefined') {
+  syncThemeColor();
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', syncThemeColor);
+}
+
 export function isStandalone() {
   return window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
 }

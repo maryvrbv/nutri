@@ -100,7 +100,7 @@
 
 /* ---------- База ---------- */
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); }
 body {
   margin: 0;
   background:
@@ -264,7 +264,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes up { from { transform: translateY(24px); opacity: 0.6; } }
 
-.toast { position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + 16px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 12px 16px; border-radius: 12px; font-size: 14.5px; font-weight: 500; z-index: 60; box-shadow: var(--shadow-l); display: flex; gap: 12px; align-items: center; max-width: calc(100vw - 32px); animation: up 0.2s ease-out; }
+.toast { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 12px 16px; border-radius: 12px; font-size: 14.5px; font-weight: 500; z-index: 60; box-shadow: var(--shadow-l); display: flex; gap: 12px; align-items: center; max-width: calc(100vw - 32px); animation: up 0.2s ease-out; }
 .toast button { background: none; border: 0; color: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0; }
 @media (min-width: 1000px) { .toast { bottom: 24px; } }
 
@@ -274,22 +274,28 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 /* ---------- Каркас клиента (телефон) ---------- */
-.app-client { min-height: 100dvh; padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
+.app-client { min-height: 100dvh; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 .page { width: 100%; max-width: 640px; margin: 0 auto; padding: 16px 16px 32px; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 0 16px; }
 .page-head .eyebrow { font-size: 14px; color: var(--text-2); font-weight: 500; margin-bottom: 2px; }
 .back { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-weight: 500; font-size: 15px; margin: 4px 0 8px -4px; }
 
+/* Нижняя навигация — компактная парящая панель; прячется при прокрутке вниз, возвращается при прокрутке вверх */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: saturate(1.6) blur(16px); -webkit-backdrop-filter: saturate(1.6) blur(16px);
-  border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
+  position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 40;
+  max-width: 520px; margin: 0 auto; border-radius: 24px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: saturate(1.6) blur(18px); -webkit-backdrop-filter: saturate(1.6) blur(18px);
+  border: 1px solid color-mix(in srgb, var(--line-strong) 60%, transparent);
+  box-shadow: 0 8px 28px rgba(43, 37, 64, 0.12);
+  transition: transform 0.25s ease, opacity 0.25s ease;
 }
-.tabbar nav { display: grid; grid-template-columns: repeat(5, 1fr); max-width: 640px; margin: 0 auto; height: var(--tabbar-h); }
-.tabbar a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--text-3); font-size: 11.5px; font-weight: 600; text-decoration: none !important; position: relative; }
-.tabbar a svg { width: 24px; height: 24px; }
-.tabbar a.active { color: var(--primary); }
-.tabbar .count { position: absolute; top: 8px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: var(--danger); color: var(--on-strong); font-size: 11px; display: grid; place-items: center; }
+.tabbar.hidden { transform: translateY(calc(100% + 24px)); opacity: 0; pointer-events: none; }
+.tabbar nav { display: grid; grid-template-columns: repeat(5, 1fr); height: 58px; padding: 0 4px; }
+.tabbar a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-3); font-size: 11px; font-weight: 600; text-decoration: none !important; position: relative; border-radius: 18px; margin: 5px 2px; }
+.tabbar a svg { width: 22px; height: 22px; }
+.tabbar a.active { color: var(--primary-ink); background: var(--primary-soft); }
+.tabbar .count { position: absolute; top: 3px; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px; background: var(--danger); color: var(--on-strong); font-size: 10px; display: grid; place-items: center; }
 
 /* ---------- Экран «Сегодня» ---------- */
 .daybar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }

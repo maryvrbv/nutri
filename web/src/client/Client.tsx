@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { api, type Me } from '../api';
 import { timezoneOptions, useAuth } from '../auth';
@@ -12,6 +12,7 @@ import { Field, Icon, Loader, Notice, Sheet, errorText, useData, useOnline, useT
 export function ClientLayout() {
   const { unread } = useNotifications();
   const online = useOnline();
+  const hidden = useHideOnScroll();
   const tabs = [
     { to: '/today', icon: 'today', label: 'Сегодня' },
     { to: '/scheme', icon: 'pill', label: 'Схема' },
@@ -24,7 +25,7 @@ export function ClientLayout() {
       <a href="#main" className="sr-only">К содержимому</a>
       {!online && <div className="notice warn" style={{ borderRadius: 0 }}><Icon name="alert" />Нет связи. Отметки сохранятся, когда интернет вернётся — попробуйте ещё раз чуть позже.</div>}
       <main id="main"><Outlet /></main>
-      <div className="tabbar">
+      <div className={`tabbar ${hidden ? 'hidden' : ''}`}>
         <nav aria-label="Основные разделы">
           {tabs.map((t) => (
             <NavLink key={t.to} to={t.to} className={({ isActive }) => (isActive ? 'active' : '')}>
@@ -37,6 +38,25 @@ export function ClientLayout() {
       </div>
     </div>
   );
+}
+
+/** Панель уходит, когда листаешь вниз, и возвращается при движении вверх или у края страницы. */
+function useHideOnScroll() {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let last = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      const nearBottom = window.innerHeight + y >= document.documentElement.scrollHeight - 40;
+      if (y < 40 || nearBottom) setHidden(false);
+      else if (y > last + 6) setHidden(true);
+      else if (y < last - 6) setHidden(false);
+      last = y;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  return hidden;
 }
 
 export function ClientLabs() {
