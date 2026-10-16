@@ -6,6 +6,7 @@ import { fmtDate, ty } from '../format';
 import { NotificationsList, useNotifications } from '../notifications';
 import { AnalytePage, DocumentReview, LabsOverview, UploadForm } from '../shared/Labs';
 import { IntakeHistory } from '../shared/IntakeHistory';
+import { isStandalone } from '../pwa';
 import { Field, Icon, Loader, Notice, Sheet, errorText, useData, useOnline, useToast } from '../ui';
 
 export function ClientLayout() {
@@ -112,6 +113,7 @@ export function MorePage() {
     { to: '/history', icon: 'history', label: 'История приёма' },
     { to: '/settings', icon: 'settings', label: 'Настройки и уведомления' },
     { to: '/settings/access', icon: 'shield', label: 'Доступ к данным' },
+    ...(isStandalone() ? [] : [{ to: '/install', icon: 'download', label: 'Установить приложение' }]),
   ];
   return (
     <div className="page">
@@ -198,6 +200,7 @@ export function SettingsPage() {
         <button className="btn primary block" onClick={save} disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить'}</button>
         <div className="card stack">
           <h2>Мои данные</h2>
+          {!isStandalone() && <Link className="btn outline block" to="/install"><Icon name="download" />Установить как приложение</Link>}
           <a className="btn outline block" href="/api/me/export" download><Icon name="download" />Скачать все данные (JSON)</a>
           <button className="btn ghost block" onClick={logout}><Icon name="logout" />Выйти</button>
           <button className="btn danger block" onClick={() => setDel(true)}><Icon name="trash" />Удалить аккаунт и данные</button>

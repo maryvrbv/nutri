@@ -6,6 +6,7 @@ import { addDays, amountLabel, FOOD_LABELS, fmtDate, fmtDateTime, fmtDayTitle, f
 import { useNotifications } from '../notifications';
 import { Icon, Loader, Notice, Sheet, StateBadge, errorText, useData, useToast } from '../ui';
 import { WellbeingForm } from './Diary';
+import { InstallBanner } from '../pwa';
 
 type Group = { key: string; time: string; slot: string; items: Intake[] };
 
@@ -114,6 +115,7 @@ export function TodayPage() {
       </div>
       {date !== today && <button className="linkbtn small" style={{ marginTop: -8, marginBottom: 12 }} onClick={() => setDate(today)}>Вернуться к сегодня</button>}
 
+      {date === today && <InstallBanner />}
       {date === today && fresh.length > 0 && (
         <div className="stack" style={{ marginBottom: 8 }}>
           {fresh.map((n) => (

@@ -475,3 +475,14 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 .manual-row .field label { font-size: 13px; color: var(--text-2); font-weight: 600; }
 @media (max-width: 560px) { .manual-row { grid-template-columns: 1fr 1fr auto; } .manual-row .name { grid-column: 1 / -1; } }
 .dropzone { background: linear-gradient(135deg, var(--surface), var(--primary-soft)); }
+
+/* ---------- Установка приложения ---------- */
+.kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 28px; padding: 0 6px; margin: 0 2px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line-strong); color: var(--primary-ink); vertical-align: -7px; font-weight: 700; }
+.install-steps { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 14px; }
+.install-steps li { display: grid; grid-template-columns: 32px 1fr; gap: 12px; align-items: start; line-height: 1.6; }
+.install-steps .n { width: 32px; height: 32px; border-radius: 50%; background: var(--primary-soft); color: var(--primary-ink); display: grid; place-items: center; font-weight: 800; font-family: var(--font-head); }
+.install-hero { display: flex; gap: 16px; align-items: center; background: linear-gradient(135deg, var(--surface), var(--primary-soft)); }
+.install-hero img, .install-banner img { border-radius: 22%; box-shadow: var(--shadow); flex: none; }
+.install-done { display: flex; gap: 14px; align-items: center; color: var(--taken); background: var(--taken-soft); border-color: transparent; }
+.install-done h2 { color: var(--text); }
+.install-banner { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; margin-bottom: 12px; border-radius: var(--radius-l); background: linear-gradient(135deg, var(--surface), var(--primary-soft)); border: 1px solid var(--line); box-shadow: var(--shadow); }

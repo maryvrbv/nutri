@@ -1,0 +1,17 @@
+{
+  "name": "Нутри — план приёма и анализы",
+  "short_name": "Нутри",
+  "description": "Схема приёма от специалиста, отметки, анализы и дневник самочувствия",
+  "lang": "ru",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F4FB",
+  "theme_color": "#F7F4FB",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

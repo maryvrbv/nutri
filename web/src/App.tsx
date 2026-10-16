@@ -14,6 +14,7 @@ import {
   ClientsPage, InvitesPage, SpecLayout, SpecNotifications,
 } from './specialist/Specialist';
 import { SchemeEditorPage, SchemesTab } from './specialist/SchemeEditor';
+import { InstallPage } from './pwa';
 
 function Routed() {
   const { me } = useAuth();
@@ -51,6 +52,7 @@ function Routed() {
             <Route path="/invites" element={<InvitesPage />} />
             <Route path="/notifications" element={<SpecNotifications />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/install" element={<InstallPage />} />
             <Route path="*" element={<Navigate to="/clients" replace />} />
           </Route>
         </Routes>
@@ -76,6 +78,7 @@ function Routed() {
           <Route path="/more" element={<MorePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/access" element={<AccessPage />} />
+          <Route path="/install" element={<InstallPage back="/more" />} />
           <Route path="*" element={<Navigate to="/today" replace />} />
         </Route>
       </Routes>

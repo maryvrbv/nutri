@@ -652,8 +652,15 @@ export function createApp(deps: AppDeps) {
   app.use('/api', (_req, _res, next) => next(notFound()));
 
   if (deps.webDist && existsSync(deps.webDist)) {
-    app.use(express.static(deps.webDist, { index: false, maxAge: '1h' }));
-    app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(join(deps.webDist!, 'index.html')));
+    app.use(express.static(deps.webDist, {
+      index: false, maxAge: '1h',
+      // Сервис-воркер и манифест должны обновляться сразу; файлы сборки с хешем можно кэшировать надолго
+      setHeaders: (res, path) => {
+        if (/sw\.js$|\.webmanifest$/.test(path)) res.setHeader('Cache-Control', 'no-cache');
+        else if (/[\\/]assets[\\/]/.test(path)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      },
+    }));
+    app.get(/^(?!\/api\/).*/, (_req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(join(deps.webDist!, 'index.html')); });
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
