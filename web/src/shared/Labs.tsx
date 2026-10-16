@@ -229,7 +229,7 @@ function ManualEntry({ clientId, base }: { clientId: string; base: string }) {
         <datalist id="analytes">{ref.data?.map((a) => <option key={a.code} value={a.name} />)}</datalist>
         <button type="button" className="btn outline block mt-8" onClick={() => setRows([...rows, emptyRow()])}><Icon name="plus" />Ещё показатель</button>
       </div>
-      <p className="tiny muted">{ty('Интервал вводить не нужно: подставим справочный для взрослых и подпишем, откуда он.')}</p>
+      <p className="tiny muted">{ty('Интервал вводить не нужно — он появится на странице показателя.')}</p>
       {err && <Notice kind="danger">{err}</Notice>}
       <button className="btn primary block" disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить анализ'}</button>
     </form>
@@ -276,7 +276,9 @@ export function DocumentReview({ base }: { clientId?: string; base: string }) {
   if (!doc) return <Loader error={d.error} />;
   const editable = doc.status === 'needs_review' || doc.status === 'error';
   const isOwner = me!.id === doc.owner_id;
-  const lowCount = doc.results.filter((r) => r.low_confidence.length).length;
+  // Интервал на проверке не показывается и не проверяется — считаем только значимые поля
+  const lowOf = (r: Result) => r.low_confidence.filter((f) => f !== 'ref');
+  const lowCount = doc.results.filter((r) => lowOf(r).length).length;
 
   const act = async (fn: () => Promise<any>, ok?: string) => {
     setBusy(true);
@@ -343,7 +345,7 @@ export function DocumentReview({ base }: { clientId?: string; base: string }) {
           {editable && <p className="small muted mt-8">{doc.mime === 'manual' ? ty('Проверьте значения перед подтверждением.') : ty('Сверьте с исходным бланком. Исправленные значения сохранятся вместе с распознанным оригиналом.')}</p>}
 
           <div className="mt-8">
-            <div className="rrow rrow-head"><span>Показатель</span><span>Результат</span><span>Единицы</span><span>Интервал</span><span /></div>
+            <div className="rrow rrow-head"><span>Показатель</span><span>Результат</span><span>Единицы</span><span /></div>
             {doc.results.map((r) => <ResultRow key={r.id} r={r} editable={editable} onChange={(nd) => d.setData(nd)} />)}
             {doc.results.length === 0 && <p className="small muted" style={{ padding: '12px 0' }}>Значений пока нет — добавьте их вручную</p>}
           </div>
@@ -378,7 +380,7 @@ function ResultRow({ r, editable, onChange }: { r: Result; editable: boolean; on
   const [err, setErr] = useState('');
   const toast = useToast();
   useEffect(() => { setV(toDraft(r)); }, [r]);
-  const low = (f: string) => r.low_confidence.includes(f);
+  const low = (f: string) => f !== 'ref' && r.low_confidence.includes(f);
   const dirty = JSON.stringify(v) !== JSON.stringify(toDraft(r));
   const save = async () => {
     if (!dirty) return;
@@ -394,8 +396,7 @@ function ResultRow({ r, editable, onChange }: { r: Result; editable: boolean; on
         <div className="name"><b>{r.name}</b>{r.edited_by_name && r.source !== 'manual' && <div className="tiny muted">исправил(а) {r.edited_by_name}{r.recognized ? `, распознано: ${r.recognized.value_text} ${r.recognized.unit}` : ''}</div>}</div>
         <div className="num"><b>{r.value_text}</b> {r.lab_flag && <span className="badge warn">{r.lab_flag}</span>}</div>
         <div>{r.unit || '—'}</div>
-        <RefInfo r={r} />
-        <PositionBadge r={r} />
+        <span />
       </div>
     );
   }
@@ -407,11 +408,10 @@ function ResultRow({ r, editable, onChange }: { r: Result; editable: boolean; on
       <div className="name">{inp('name', 'Показатель', 'name')}{low('name') && <div className="tiny" style={{ color: 'var(--warn)' }}>нет в справочнике — проверьте название</div>}</div>
       <div><span className="rlabel">Результат</span>{inp('value_text', 'Результат', 'value', { inputMode: 'decimal' })}</div>
       <div><span className="rlabel">Единицы</span>{inp('unit', 'Единицы', 'unit')}</div>
-      <div><span className="rlabel">Интервал</span><RefInfo r={r} /></div>
       <button className="btn ghost icon small" onClick={del} aria-label={`Удалить ${r.name}`}><Icon name="trash" size={18} /></button>
-      {(r.low_confidence.length > 0 || err || r.edited_by_name) && (
+      {(r.low_confidence.some((f) => f !== 'ref') || err || r.edited_by_name) && (
         <div className="tiny" style={{ gridColumn: '1 / -1', color: err ? 'var(--danger)' : 'var(--text-3)' }}>
-          {err || (r.low_confidence.length > 0 ? `Не уверены: ${r.low_confidence.map((f) => LOW_FIELDS[f]).join(', ')}` : '')}
+          {err || (r.low_confidence.some((f) => f !== 'ref') ? `Не уверены: ${r.low_confidence.filter((f) => f !== 'ref').map((f) => LOW_FIELDS[f]).join(', ')}` : '')}
           {r.edited_by_name && !err && ` Исправил(а) ${r.edited_by_name}${r.recognized ? ` · распознано: ${r.recognized.value_text} ${r.recognized.unit} ${r.recognized.ref_text}` : ''}`}
         </div>
       )}
@@ -441,7 +441,7 @@ function AddResultForm({ docId, onDone }: { docId: string; onDone: (d: Doc) => v
         <Field label="Результат" htmlFor="ar-v"><input id="ar-v" className="input" inputMode="decimal" value={v.value_text} onChange={set('value_text')} placeholder="18,4" /></Field>
         <Field label="Единицы" htmlFor="ar-u"><input id="ar-u" className="input" value={v.unit} onChange={set('unit')} placeholder="нг/мл" /></Field>
       </div>
-      <p className="tiny muted">{ty('Интервал вводить не нужно: подставим справочный для взрослых и подпишем, откуда он.')}</p>
+      <p className="tiny muted">{ty('Интервал вводить не нужно — он появится на странице показателя.')}</p>
       {err && <Notice kind="danger">{err}</Notice>}
       <button className="btn primary block">Добавить</button>
     </form>

@@ -178,7 +178,10 @@ function num(v: any): number | null {
 
 function cleanResult(input: any) {
   const name = String(input?.name ?? '').trim();
-  const value_text = String(input?.value_text ?? '').trim();
+  // Отметка лаборатории («25.0*», «8,1↑») хранится отдельно: в результате только число
+  let value_text = String(input?.value_text ?? '').trim();
+  const flag = value_text.match(/\s*([*↑↓]+)$/);
+  if (flag) value_text = value_text.slice(0, flag.index).trim();
   if (!name) throw bad('Укажите название показателя');
   if (!value_text) throw bad('Укажите результат');
   const known = input.analyte_code ? getAnalyte(input.analyte_code) : findAnalyte(name);
@@ -189,7 +192,7 @@ function cleanResult(input: any) {
     value_num: /^[<>≤≥]/.test(value_text) ? null : num(value_text),
     unit: normalizeUnit(String(input?.unit ?? '')),
 
-    lab_flag: String(input?.lab_flag ?? '').trim().slice(0, 20),
+    lab_flag: (flag ? flag[1] : String(input?.lab_flag ?? '').trim()).slice(0, 20),
   };
 }
 
