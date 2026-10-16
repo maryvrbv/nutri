@@ -16,8 +16,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 # На маленьких машинах (1 ГБ памяти) сборке нужен файл подкачки
 if [ "$(awk '/MemTotal/ {print $2}' /proc/meminfo)" -lt 2000000 ] && ! swapon --show | grep -q .; then
-  echo "→ Файл подкачки 2 ГБ"
-  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap -q /swapfile && swapon /swapfile
+  echo "→ Файл подкачки 1 ГБ"
+  fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap -q /swapfile && swapon /swapfile
   grep -q /swapfile /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
 fi
 
@@ -81,7 +81,7 @@ PrivateTmp=true
 WantedBy=multi-user.target
 UNIT
 
-# Ежедневная копия базы, хранится 14 дней. Файлы анализов уже зашифрованы и копируются как есть.
+# Ежедневная копия базы, хранится 7 дней. Файлы анализов уже зашифрованы и копируются как есть.
 cat > /usr/local/bin/nutri-backup <<'BK'
 #!/usr/bin/env bash
 set -e
@@ -89,7 +89,7 @@ D=$(date +%F)
 cd /var/backups/nutri
 node -e "require('node:sqlite').backup(new (require('node:sqlite').DatabaseSync)('/var/lib/nutri/nutri.db'), '/var/backups/nutri/nutri-$D.db').then(()=>{})" 2>/dev/null
 tar -czf "files-$D.tgz" -C /var/lib/nutri files
-find /var/backups/nutri -type f -mtime +14 -delete
+find /var/backups/nutri -type f -mtime +7 -delete
 BK
 chmod 755 /usr/local/bin/nutri-backup
 echo "30 3 * * * nutri /usr/local/bin/nutri-backup" > /etc/cron.d/nutri-backup
