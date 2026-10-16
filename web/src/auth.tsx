@@ -87,12 +87,14 @@ export function RegisterPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(true);
+  useEffect(() => { api.get('/auth/options').then((o) => setOpen(o.open_registration), () => {}); }, []);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr(''); setErrors({});
     try {
-      setMe(await api.post<Me>('/auth/register', { ...f, role }));
+      setMe(await api.post<Me>('/auth/register', { ...f, role, invite: fromInvite ? next.slice('/invite/'.length) : undefined }));
       nav(next, { replace: true });
     } catch (e) {
       if (e instanceof ApiError && e.data?.fields) setErrors(e.data.fields);
@@ -106,6 +108,7 @@ export function RegisterPage() {
         <div className="card">
           <h1>Регистрация</h1>
           {fromInvite && <p className="muted">После регистрации вернём вас к&nbsp;приглашению специалиста</p>}
+          {!fromInvite && !open && <div className="mt-16"><Notice kind="plain" icon="lock">Регистрация по приглашению. Попросите специалиста прислать ссылку.</Notice></div>}
           <form className="stack mt-24" onSubmit={submit} noValidate>
             {!fromInvite && (
               <div className="role-pick" role="group" aria-label="Кто вы">

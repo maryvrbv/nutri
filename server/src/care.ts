@@ -49,6 +49,10 @@ export function previewInvitation(db: DB, t: string) {
   return { state, specialist_name: inv.specialist_name, specialist_title: inv.specialist_title ?? '', expires_at: inv.expires_at, scopes: SCOPES };
 }
 
+export function invitationIsValid(db: DB, t: string) {
+  return invitationState(get(db, 'SELECT * FROM invitations WHERE token_hash = ?', sha256(String(t)))) === 'valid';
+}
+
 export function acceptInvitation(db: DB, actor: User, t: string, replace: boolean) {
   if (actor.role !== 'client') throw new HttpError(403, 'forbidden', 'Приглашение предназначено для клиента. Войдите в аккаунт клиента.');
   const inv = get(db, 'SELECT * FROM invitations WHERE token_hash = ?', sha256(String(t)));

@@ -15,7 +15,11 @@ import type { Recognizer } from './recognition.ts';
 import { ANALYTES } from './reference.ts';
 import { addDays, isDate, isTime, isValidTimeZone, ruDate, todayIn } from './time.ts';
 
-export type AppDeps = { db: DB; files: FileStore; recognizer: Recognizer; webDist?: string; secureCookies?: boolean };
+export type AppDeps = {
+  db: DB; files: FileStore; recognizer: Recognizer; webDist?: string; secureCookies?: boolean;
+  /** false — регистрация только первого аккаунта и клиентов по действующему приглашению */
+  openRegistration?: boolean;
+};
 
 const COOKIE = 'nutri_sid';
 
@@ -101,6 +105,12 @@ export function createApp(deps: AppDeps) {
   // ---------- Аккаунт ----------
 
   app.post('/api/auth/register', h((req, res) => {
+    if (deps.openRegistration === false) {
+      const first = !get(db, 'SELECT 1 FROM users LIMIT 1');
+      const invited = typeof req.body?.invite === 'string' && care.invitationIsValid(db, req.body.invite);
+      if (!first && !invited) throw new HttpError(403, 'registration_closed', 'Регистрация по приглашению. Попросите специалиста прислать ссылку.');
+      if (!first && invited) req.body.role = 'client';
+    }
     const u = register(db, req.body);
     setSession(res, u.id);
     return me(u);
@@ -116,6 +126,7 @@ export function createApp(deps: AppDeps) {
     return { ok: true };
   }));
   app.get('/api/me', h((req) => me(auth(req))));
+  app.get('/api/auth/options', h(() => ({ open_registration: deps.openRegistration !== false || !get(db, 'SELECT 1 FROM users LIMIT 1') })));
 
   app.patch('/api/me', h((req) => {
     const u = auth(req);

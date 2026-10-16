@@ -20,6 +20,7 @@ const app = createApp({
   db, files, recognizer: builtinRecognizer,
   webDist: join(root, 'web/dist'),
   secureCookies: process.env.NODE_ENV === 'production',
+  openRegistration: process.env.NUTRI_OPEN_REGISTRATION ? process.env.NUTRI_OPEN_REGISTRATION === '1' : process.env.NODE_ENV !== 'production',
 });
 startScheduler(db);
 app.listen(port, () => console.log(`nutri: http://localhost:${port}`));

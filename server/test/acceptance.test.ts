@@ -381,3 +381,28 @@ test('CSRF: изменяющий запрос без служебного заг
   const r = await fetch(srv.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   assert.equal(r.status, 403);
 });
+
+test('Закрытая регистрация: только первый аккаунт и клиенты по приглашению', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { openDb } = await import('../src/db.ts');
+  const { FileStore } = await import('../src/core.ts');
+  const { createApp } = await import('../src/app.ts');
+  const { builtinRecognizer } = await import('../src/recognition.ts');
+  const dir = mkdtempSync(join(tmpdir(), 'nutri-closed-'));
+  const app = createApp({ db: openDb(join(dir, 'db')), files: new FileStore(join(dir, 'f')), recognizer: builtinRecognizer, openRegistration: false });
+  const server = app.listen(0);
+  await new Promise((r) => server.once('listening', r));
+  const base = `http://127.0.0.1:${(server.address() as any).port}`;
+  const owner = agent(base);
+  assert.equal((await owner.post('/api/auth/register', { email: 'me@x.io', password: 'password123', name: 'Мария', role: 'specialist' })).status, 200);
+  const stranger = agent(base);
+  assert.equal((await stranger.post('/api/auth/register', { email: 's@x.io', password: 'password123', name: 'Чужой' })).status, 403);
+  const inv = await owner.post('/api/invitations', {});
+  const invited = agent(base);
+  const r = await invited.post('/api/auth/register', { email: 'c@x.io', password: 'password123', name: 'Мария', role: 'specialist', invite: inv.body.token });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.role, 'client', 'по приглашению создаётся только клиент');
+  await new Promise((res) => server.close(res));
+});
