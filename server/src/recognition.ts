@@ -125,7 +125,7 @@ export function parseValuePart(rest: string, analyte?: Analyte): Omit<Recognized
   return { value_num, value_text, unit, ref_low, ref_high, ref_text, lab_flag, low_confidence: low };
 }
 
-const GENERIC_LINE = new RegExp(String.raw`^([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9 ,()\-]{2,60}?)\s+([<>]?\s*${NUM}[*↑↓]?\s.*)$`);
+const GENERIC_LINE = new RegExp(String.raw`^([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9 ,.%()\-]{2,60}?)\s+([<>]?\s*${NUM}[*↑↓]?\s.*)$`);
 
 export function parseLines(lines: string[]): RecognizedRow[] {
   const rows: RecognizedRow[] = [];
@@ -146,7 +146,7 @@ export function parseLines(lines: string[]): RecognizedRow[] {
       if (!v || (!v.unit && !v.ref_text)) continue;
       const known = findAnalyte(g[1]);
       rows.push({
-        name: known?.name ?? g[1].trim(),
+        name: known?.name ?? g[1].trim().replace(/[,\s]+$/, ''),
         analyte_code: known?.code ?? null,
         ...v,
         low_confidence: known ? v.low_confidence : ['name', ...v.low_confidence],
@@ -176,18 +176,21 @@ async function pdfLines(file: Buffer): Promise<{ pages: number; lines: string[] 
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p);
       const content = await page.getTextContent();
-      // Собираем строки по вертикальной координате
-      const byY = new Map<number, { x: number; s: string }[]>();
-      for (const it of content.items as any[]) {
-        if (!it.str?.trim()) continue;
-        const y = Math.round(it.transform[5] / 2) * 2;
-        const list = byY.get(y) ?? [];
-        list.push({ x: it.transform[4], s: it.str });
-        byY.set(y, list);
+      const items = (content.items as any[])
+        .filter((it) => it.str?.trim())
+        .map((it) => ({ x: it.transform[4] as number, y: it.transform[5] as number, h: Math.abs(it.transform[3] as number) || 8, s: String(it.str).trim() }));
+      // Колонка «Комментарий» — длинные пояснения с числами, к значениям они не относятся
+      const comment = items.find((it) => /^комментари/i.test(it.s));
+      const cells = comment ? items.filter((it) => it.x < comment.x - 4) : items;
+      // Строки собираем по вертикальной координате с допуском: ячейки одной строки бывают сдвинуты на 1–2 pt
+      cells.sort((a, b) => b.y - a.y);
+      const rowsY: { y: number; tol: number; cells: typeof cells }[] = [];
+      for (const it of cells) {
+        const row = rowsY.find((r) => Math.abs(r.y - it.y) <= r.tol);
+        if (row) row.cells.push(it);
+        else rowsY.push({ y: it.y, tol: Math.max(2, it.h * 0.4), cells: [it] });
       }
-      for (const y of [...byY.keys()].sort((a, b) => b - a)) {
-        lines.push(byY.get(y)!.sort((a, b) => a.x - b.x).map((t) => t.s.trim()).join(' '));
-      }
+      for (const r of rowsY) lines.push(r.cells.sort((a, b) => a.x - b.x).map((t) => t.s).join(' '));
     }
     return { pages: doc.numPages, lines };
   } finally {
