@@ -74,7 +74,7 @@ export const ANALYTES: Analyte[] = [
     ranges: [{ sex: 'female', low: 121, high: 151, source: { title: 'MedlinePlus (NIH): Hemoglobin', url: 'https://medlineplus.gov/ency/article/003645.htm' } }, { sex: 'male', low: 138, high: 172, source: { title: 'MedlinePlus (NIH): Hemoglobin', url: 'https://medlineplus.gov/ency/article/003645.htm' } }],
   },
   {
-    code: 'tsh', name: 'ТТГ', aliases: ['ттг', 'тиреотропный гормон', 'tsh', 'тиреотропный гормон (ттг)', 'tтг', 'ttг', 'ттr', 'ttr', 'ttp', 'tip'],
+    code: 'tsh', name: 'ТТГ', aliases: ['ттг', 'тиреотропный гормон', 'tsh', 'тиреотропный гормон (ттг)', 'tтг', 'ttг', 'ттr', 'ttr', 'ttp', 'tip', 'tif', 'ttf'],
     baseUnit: 'мМЕ/л', factors: { 'мМЕ/л': 1 },
     about: 'ТТГ (тиреотропный гормон) вырабатывается гипофизом и регулирует работу щитовидной железы.',
     source: ML('tsh-thyroid-stimulating-hormone-test', 'TSH Test'),
@@ -158,12 +158,28 @@ export const KNOWN_UNIT_PATTERN = Object.keys(UNIT_ALIASES)
   .map((u) => u.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&'))
   .join('|');
 
+const TO_CYR: Record<string, string> = { a: 'а', b: 'в', c: 'с', e: 'е', h: 'н', k: 'к', m: 'м', n: 'п', o: 'о', p: 'р', r: 'г', t: 'т', u: 'и', x: 'х', y: 'у' };
+
 export function normalizeUnit(raw: string): string {
   const k = raw.trim().toLowerCase().replace(/\s+/g, '');
-  return UNIT_ALIASES[k] ?? UNIT_ALIASES[raw.trim().toLowerCase()] ?? raw.trim();
+  const hit = UNIT_ALIASES[k] ?? UNIT_ALIASES[raw.trim().toLowerCase()];
+  if (hit) return hit;
+  // Единицы после распознавания фото: «Hr/Mn» → «нг/мл». Латиницу, похожую на кириллицу, переводим,
+  // а «п» после косой черты — частая ошибка вместо «л».
+  if (k.includes('/')) {
+    const cyr = k.replace(/[a-z]/g, (c) => TO_CYR[c] ?? c);
+    const [num, den = ''] = cyr.split('/');
+    const fixed = `${num}/${den.replace(/^мп$/, 'мл').replace(/п$/, 'л')}`;
+    if (UNIT_ALIASES[fixed]) return UNIT_ALIASES[fixed];
+  }
+  return raw.trim();
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').replace(/[«»"]/g, '').replace(/\s+/g, ' ').trim();
+// Распознавание путает похожие кириллические и латинские буквы («ОН» и «OH», «D» и «В»),
+// поэтому названия сравниваются после сведения похожих букв к одной форме. Замена 1:1, длина строки не меняется.
+const LOOKALIKE: Record<string, string> = { а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', d: 'b' };
+const fold = (s: string) => s.replace(/[авекмнорстухd]/g, (c) => LOOKALIKE[c] ?? c);
+const norm = (s: string) => fold(s.toLowerCase().replace(/ё/g, 'е').replace(/[«»"]/g, '').replace(/\s+/g, ' ').trim());
 
 const aliasIndex: { alias: string; a: Analyte }[] = ANALYTES
   .flatMap((a) => a.aliases.map((alias) => ({ alias: norm(alias), a })))

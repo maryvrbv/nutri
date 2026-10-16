@@ -81,7 +81,7 @@ export function parseMeta(text: string) {
 /** Разбор хвоста строки после названия показателя: значение, единица, интервал, отметка. */
 export function parseValuePart(rest: string, analyte?: Analyte): Omit<RecognizedRow, 'name' | 'analyte_code'> | null {
   // «см. комм.» — интервал вынесен в комментарий; числа после пометки к интервалу результата не относятся
-  let s = ' ' + rest.replace(/ /g, ' ').replace(/\s+/g, ' ').replace(/см\.?\s*комм?\.?.*$/i, '') + ' ';
+  let s = ' ' + rest.replace(/ /g, ' ').replace(/\s+/g, ' ').replace(/(?:см|cm)\.?\s*(?:комм?|kom{1,2})\.?.*$/i, '') + ' ';
   const low: string[] = [];
   let lab_flag = '';
   const fm = s.match(/(↑|↓|\*|\s[HLВН](?=\s))/);
@@ -98,6 +98,11 @@ export function parseValuePart(rest: string, analyte?: Analyte): Omit<Recognized
   let unit = '';
   const um = s.match(UNIT_RE);
   if (um) { unit = normalizeUnit(um[1]); s = s.replace(um[1], ' '); }
+  else {
+    // Единица, искажённая распознаванием фото (например, «Hr/Mn»)
+    const tok = s.match(/(?:^|\s)([A-Za-zА-Яа-яµ]{1,6}\/[A-Za-zА-Яа-я]{1,4})(?=\s|$)/);
+    if (tok && normalizeUnit(tok[1]) !== tok[1]) { unit = normalizeUnit(tok[1]); s = s.replace(tok[1], ' '); }
+  }
 
   const nums = [...s.matchAll(new RegExp(String.raw`([<>≤≥]\s*)?(${NUM})`, 'g'))];
   if (nums.length === 0) return null;
@@ -125,7 +130,7 @@ const GENERIC_LINE = new RegExp(String.raw`^([A-Za-zА-Яа-яЁё][A-Za-zА-Я�
 export function parseLines(lines: string[]): RecognizedRow[] {
   const rows: RecognizedRow[] = [];
   for (const raw of lines) {
-    const line = raw.replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+    const line = raw.replace(/ /g, ' ').replace(/[|¦]/g, ' ').replace(/\s+/g, ' ').trim();
     if (line.length < 4 || line.length > 200) continue;
     const m = matchAnalyteAtStart(line);
     if (m) {
@@ -207,29 +212,44 @@ async function ocrImage(path: string) {
   return stdout;
 }
 
+/**
+ * Подготовка изображения к распознаванию: поворот по данным камеры, увеличение мелкого текста, серый цвет.
+ * Ячейки с цветной заливкой (лаборатории выделяют отклонения белым текстом на красном)
+ * инвертируются — иначе Tesseract не видит в них значения.
+ */
+async function prepare(src: string, dir: string, n: number): Promise<string> {
+  const p = (name: string) => join(dir, `${name}-${n}.png`);
+  try {
+    await run('convert', [src, '-auto-orient', '-resize', '2400x2400<', p('src')], { timeout: 60_000 });
+    await run('convert', [p('src'), '-colorspace', 'Gray', p('gray')], { timeout: 60_000 });
+    await run('convert', [p('src'), '-channel', 'R', '-separate', p('r')], { timeout: 60_000 });
+    await run('convert', [p('src'), '-channel', 'G', '-separate', p('g')], { timeout: 60_000 });
+    // Маска «красного»: красный канал заметно ярче зелёного, дыры от букв закрываем
+    await run('convert', [p('r'), p('g'), '-compose', 'minus_src', '-composite', '-threshold', '30%', '-morphology', 'Close', 'Disk:8', p('mask')], { timeout: 60_000 });
+    await run('convert', [p('gray'), '-negate', p('neg')], { timeout: 60_000 });
+    await run('convert', [p('gray'), p('neg'), p('mask'), '-composite', p('prep')], { timeout: 60_000 });
+    return p('prep');
+  } catch {
+    return src; // ImageMagick не установлен — распознаём как есть
+  }
+}
+
 /** Фото или скан → текст. Временные файлы удаляются сразу после распознавания. */
 async function ocr(file: Buffer, mime: string): Promise<{ text: string; pages: number }> {
   const dir = await mkdtemp(join(tmpdir(), 'nutri-ocr-'));
   try {
     if (mime === 'application/pdf') {
       await writeFile(join(dir, 'doc.pdf'), file);
-      await run('pdftoppm', ['-r', '300', '-gray', '-png', '-l', '10', join(dir, 'doc.pdf'), join(dir, 'p')], { timeout: 180_000 });
-      const pages = (await readdir(dir)).filter((f) => f.startsWith('p') && f.endsWith('.png')).sort();
+      await run('pdftoppm', ['-r', '300', '-png', '-l', '10', join(dir, 'doc.pdf'), join(dir, 'p')], { timeout: 180_000 });
+      const pages = (await readdir(dir)).filter((f) => /^p.*\.png$/.test(f)).sort();
       const texts: string[] = [];
-      for (const pg of pages) texts.push(await ocrImage(join(dir, pg)));
+      for (const [i, pg] of pages.entries()) texts.push(await ocrImage(await prepare(join(dir, pg), dir, i)));
       return { text: texts.join('\n'), pages: pages.length };
     }
     const ext = mime === 'image/png' ? 'png' : 'jpg';
     const src = join(dir, `img.${ext}`);
     await writeFile(src, file);
-    // Мелкий шрифт Tesseract читает плохо: небольшие изображения увеличиваем и переводим в серое.
-    // -auto-orient учитывает поворот фото с телефона.
-    let input = src;
-    try {
-      await run('convert', [src, '-auto-orient', '-colorspace', 'Gray', '-resize', '2400x2400<', join(dir, 'prep.png')], { timeout: 60_000 });
-      input = join(dir, 'prep.png');
-    } catch { /* ImageMagick не установлен — распознаём как есть */ }
-    return { text: await ocrImage(input), pages: 1 };
+    return { text: await ocrImage(await prepare(src, dir, 0)), pages: 1 };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

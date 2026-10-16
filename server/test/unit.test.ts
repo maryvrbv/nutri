@@ -149,3 +149,23 @@ test('справочные интервалы: по полу, в единица�
   assert.equal(referenceRange('ferritin', 'нг/мл', { sex: 'female', birth_date: '2015-01-01' }, '2026-10-14'), null, 'для детей не подставляем');
   assert.equal(referenceRange('crp', 'мг/л', {}), null);
 });
+
+test('фото бланка: значение на красной заливке и единицы, искажённые OCR', async (t) => {
+  const { builtinRecognizer, hasOcr } = await import('../src/recognition.ts');
+  if (!(await hasOcr())) return t.skip('Tesseract не установлен');
+  const { readFileSync } = await import('node:fs');
+  const r = await builtinRecognizer.recognize(readFileSync(new URL('../../samples/blank-invitro-red-cell.jpg', import.meta.url)), 'image/jpeg');
+  const d = r.rows.find((x) => x.analyte_code === 'vitamin_d');
+  assert.ok(d, 'витамин D найден');
+  assert.equal(d!.value_num, 25);
+  assert.equal(d!.unit, 'нг/мл');
+  assert.equal(d!.ref_text, '', 'числа из комментария не стали интервалом');
+  assert.equal(r.rows.find((x) => x.analyte_code === 'ferritin')?.value_num, 58);
+});
+
+test('единицы после OCR приводятся к правильным', async () => {
+  const { normalizeUnit } = await import('../src/reference.ts');
+  assert.equal(normalizeUnit('Hr/Mn'), 'нг/мл');
+  assert.equal(normalizeUnit('мкг/п'), 'мкг/л');
+  assert.equal(normalizeUnit('ng/ml'), 'нг/мл');
+});
