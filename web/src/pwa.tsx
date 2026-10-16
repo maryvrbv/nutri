@@ -18,9 +18,21 @@ let installedNow = false;
 
 // Цвет системных полос телефона: одна метка theme-color под текущую тему.
 // Некоторые сборки Chrome игнорируют media в метках и берут первую — поэтому выставляем явно и следим за сменой темы.
+/** Тема оформления хранится на устройстве. Пока только светлые варианты: «Clay» (по умолчанию) и «Пастель». */
+export type Theme = 'clay' | 'pastel';
+export function getTheme(): Theme {
+  try { return localStorage.getItem('nutri:theme') === 'pastel' ? 'pastel' : 'clay'; } catch { return 'clay'; }
+}
+export function setTheme(t: Theme) {
+  try { localStorage.setItem('nutri:theme', t); } catch { /* хранилище недоступно — тема только до перезагрузки */ }
+  if (t === 'pastel') document.documentElement.dataset.theme = 'pastel';
+  else delete document.documentElement.dataset.theme;
+  syncThemeColor();
+}
+
+// Цвет системных полос телефона — под фон текущей темы
 function syncThemeColor() {
-  const dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-  const color = dark ? '#15121E' : '#F7F4FB';
+  const color = getTheme() === 'pastel' ? '#F7F4FB' : '#FFFAF0';
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
   const m = document.createElement('meta');
   m.name = 'theme-color';
@@ -29,7 +41,6 @@ function syncThemeColor() {
 }
 if (typeof window !== 'undefined') {
   syncThemeColor();
-  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', syncThemeColor);
 }
 
 export function isStandalone() {

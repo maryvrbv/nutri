@@ -63,7 +63,8 @@ export function DynamicsChart({ points, unit, events, showEvents }: { points: Po
             <circle className={`pt ${out(p) ? 'out' : ''}`} cx={x(p.date)} cy={y(p.value)} r={hover === i ? 7 : 5}
               onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onFocus={() => setHover(i)} onBlur={() => setHover(null)} tabIndex={0}
               aria-label={`${fmtShort(p.date)}: ${p.value_text} ${unit}`} />
-            <text x={x(p.date)} y={H - 10} textAnchor="middle">{fmtShort(p.date)}</text>
+            {/* Подпись даты не рисуем, если она налезает на предыдущую */}
+            {(i === 0 || x(p.date) - x(pts[i - 1].date) > 48) && <text x={x(p.date)} y={H - 10} textAnchor="middle">{fmtShort(p.date)}</text>}
           </g>
         ))}
       </svg>

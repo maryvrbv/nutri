@@ -6,8 +6,8 @@ import { fmtDate, ty } from '../format';
 import { NotificationsList, useNotifications } from '../notifications';
 import { AnalytePage, DocumentReview, LabsOverview, UploadForm } from '../shared/Labs';
 import { IntakeHistory } from '../shared/IntakeHistory';
-import { isStandalone } from '../pwa';
-import { Field, Icon, Loader, Notice, Sheet, errorText, useData, useOnline, useToast } from '../ui';
+import { getTheme, isStandalone, setTheme, type Theme } from '../pwa';
+import { Field, Icon, Loader, Notice, Seg, Sheet, errorText, useData, useOnline, useToast } from '../ui';
 
 export function ClientLayout() {
   const { unread } = useNotifications();
@@ -165,6 +165,7 @@ export function SettingsPage() {
   const [f, setF] = useState({ name: me!.name, timezone: me!.timezone, title: me!.title ?? '', sex: me!.sex ?? '', birth_date: me!.birth_date ?? '', ...me!.settings, quiet_from: me!.settings.quiet_from ?? '', quiet_to: me!.settings.quiet_to ?? '' });
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(false);
+  const [theme, setThemeState] = useState<Theme>(getTheme);
   const save = async () => {
     setBusy(true);
     try {
@@ -200,6 +201,11 @@ export function SettingsPage() {
               {[...new Set([f.timezone, ...timezoneOptions()])].map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
             </select>
           </Field>
+        </div>
+        <div className="card stack">
+          <h2>Оформление</h2>
+          <Seg label="Тема" value={theme} onChange={(t) => { setTheme(t); setThemeState(t); }} options={[{ value: 'clay', label: 'Clay' }, { value: 'pastel', label: 'Пастель' }]} />
+          <p className="hint subtle">Сохраняется на этом устройстве</p>
         </div>
         <div className="card stack">
           <h2>Уведомления</h2>
