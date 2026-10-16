@@ -94,3 +94,10 @@ export function inQuietHours(time: string, from?: string | null, to?: string | n
   if (!from || !to || from === to) return false;
   return from < to ? time >= from && time < to : time >= from || time < to;
 }
+
+const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+/** «12 октября» — для текстов уведомлений. */
+export function ruDate(date: string): string {
+  const [, m, d] = date.split('-').map(Number);
+  return `${d}\u00a0${MONTHS[m - 1]}`;
+}

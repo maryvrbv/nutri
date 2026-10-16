@@ -1,7 +1,7 @@
 import { all, get, run, tx, type DB, type Row } from './db.ts';
 import { HttpError, audit, bad, id, notFound, notify, nowIso, clock, type User } from './core.ts';
 import { diffVersions, slotsFor, validateVersion, type ItemInput, type VersionInput } from './schedule.ts';
-import { addDays, todayIn, zonedToUtc } from './time.ts';
+import { addDays, ruDate, todayIn, zonedToUtc } from './time.ts';
 
 export type SchemeStatus = 'draft' | 'scheduled' | 'active' | 'completed' | 'cancelled';
 
@@ -181,8 +181,8 @@ export function publish(db: DB, actor: User, schemeId: string, opts: { effective
     const n = generateIntakes(db, scheme.client_id, schemeId, draft.id, genFrom, tz);
     audit(db, { actor: actor.id, client: scheme.client_id, entity: 'scheme', entity_id: schemeId, action: prev ? 'version_published' : 'published', data: { number: draft.number, effective_from: effective, intakes: n, title: draft.title } });
     notify(db, scheme.client_id, prev
-      ? { kind: 'scheme_updated', title: `Специалист обновил схему «${draft.title}»`, body: `Изменения действуют с ${effective}`, public_title: 'Обновление в схеме', link: `/scheme/${schemeId}` }
-      : { kind: 'scheme_new', title: `Новая схема приёма: «${draft.title}»`, body: `Начало ${draft.start_date}`, public_title: 'Новая схема приёма', link: `/scheme/${schemeId}` });
+      ? { kind: 'scheme_updated', title: `Специалист обновил схему «${draft.title}»`, body: `Изменения действуют с ${ruDate(effective)}`, public_title: 'Обновление в схеме', link: `/scheme/${schemeId}` }
+      : { kind: 'scheme_new', title: `Новая схема приёма: «${draft.title}»`, body: `Начало — ${ruDate(draft.start_date)}`, public_title: 'Новая схема приёма', link: `/scheme/${schemeId}` });
     return { version_id: draft.id as string, effective_from: effective, intakes: n, changes };
   });
 }

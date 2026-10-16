@@ -279,7 +279,7 @@ test('11. При ошибке распознавания доступен руч
   assert.equal(add.status, 200);
   assert.equal(add.body.status, 'needs_review');
   assert.equal(add.body.results[0].analyte_code, 'ferritin');
-  assert.equal(add.body.results[0].unit, 'ng/mL');
+  assert.equal(add.body.results[0].unit, 'нг/мл');
   assert.equal((await client.post(`/api/documents/${id}/confirm`)).body.status, 'confirmed');
   const dyn = await client.get('/api/clients/me/dynamics/ferritin');
   assert.equal(dyn.body.series[0].points.length, 2);

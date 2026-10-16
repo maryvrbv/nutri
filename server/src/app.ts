@@ -13,7 +13,7 @@ import * as labs from './labs.ts';
 import { validateVersion, ValidationError } from './schedule.ts';
 import type { Recognizer } from './recognition.ts';
 import { ANALYTES } from './reference.ts';
-import { addDays, isDate, isTime, isValidTimeZone, todayIn } from './time.ts';
+import { addDays, isDate, isTime, isValidTimeZone, ruDate, todayIn } from './time.ts';
 
 export type AppDeps = { db: DB; files: FileStore; recognizer: Recognizer; webDist?: string; secureCookies?: boolean };
 
@@ -438,7 +438,7 @@ export function createApp(deps: AppDeps) {
       audit(db, { actor: u.id, client: cid, entity: 'wellbeing', entity_id: date, action: 'saved', data: { adverse: !!adverse } });
       const link = activeLink(db, cid);
       if (adverse && !prev?.adverse && link) {
-        notify(db, link.specialist_id, { kind: 'adverse', title: `${u.name}: запись о нежелательных ощущениях (${date})`, public_title: 'Новая запись клиента', link: `/clients/${cid}/wellbeing`, dedupe_key: `adv:${cid}:${date}` });
+        notify(db, link.specialist_id, { kind: 'adverse', title: `${u.name}: запись о нежелательных ощущениях за ${ruDate(date)}`, public_title: 'Новая запись клиента', link: `/clients/${cid}/wellbeing`, dedupe_key: `adv:${cid}:${date}` });
       }
     });
     return { ok: true };

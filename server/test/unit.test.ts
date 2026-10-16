@@ -95,21 +95,21 @@ test('распознавание русского бланка', () => {
   assert.equal(r.collected_at, '2026-09-03');
   assert.equal(r.patient_name, 'Иванова Анна');
   assert.deepEqual(r.rows.map((x) => [x.analyte_code, x.value_num, x.unit, x.ref_low, x.ref_high]), [
-    ['vitamin_b12', 245, 'pg/mL', 187, 883],
-    ['hemoglobin', 128, 'g/L', 117, 155],
-    ['tsh', 5.8, 'mIU/L', 0.4, 4],
+    ['vitamin_b12', 245, 'пг/мл', 187, 883],
+    ['hemoglobin', 128, 'г/л', 117, 155],
+    ['tsh', 5.8, 'мМЕ/л', 0.4, 4],
   ]);
   assert.equal(r.rows[2].lab_flag, '↑');
 });
 
 test('пояснение: без диагноза, с источником, честно про недостаток данных', () => {
-  const tsh = explain({ name: 'ТТГ', analyte_code: 'tsh', value_num: 5.8, value_text: '5,8', unit: 'mIU/L', ref_low: 0.4, ref_high: 4, ref_text: '0,4–4,0', lab_flag: '↑' });
+  const tsh = explain({ name: 'ТТГ', analyte_code: 'tsh', value_num: 5.8, value_text: '5,8', unit: 'мМЕ/л', ref_low: 0.4, ref_high: 4, ref_text: '0,4–4,0', lab_flag: '↑' });
   assert.equal(tsh.status, 'ok');
   assert.match(tsh.text, /выше верхней границы/);
   assert.match(tsh.text, /не диагноз/);
   assert.ok(tsh.source?.url);
   assert.doesNotMatch(tsh.text, /гипотиреоз|назнач|принимайте/i);
-  assert.equal(explain({ name: 'ТТГ', analyte_code: 'tsh', value_num: 2, value_text: '2', unit: 'mIU/L', ref_low: null, ref_high: null, ref_text: '', lab_flag: '' }).status, 'insufficient');
+  assert.equal(explain({ name: 'ТТГ', analyte_code: 'tsh', value_num: 2, value_text: '2', unit: 'мМЕ/л', ref_low: null, ref_high: null, ref_text: '', lab_flag: '' }).status, 'insufficient');
   assert.equal(explain({ name: 'Лейкоциты', analyte_code: null, value_num: 6, value_text: '6', unit: '', ref_low: 4, ref_high: 9, ref_text: '', lab_flag: '' }).status, 'insufficient');
 });
 
@@ -117,7 +117,7 @@ test('перевод единиц — только по проверенным �
   const d = getAnalyte('vitamin_d');
   assert.equal(Math.round(toBase(d, 75, 'нмоль/л')!.value * 10) / 10, 30);
   assert.equal(toBase(d, 30, 'мг/л'), null);
-  assert.equal(toBase(undefined, 1, 'ng/mL'), null);
+  assert.equal(toBase(undefined, 1, 'нг/мл'), null);
 });
 
 test('сверка ФИО в документе', () => {

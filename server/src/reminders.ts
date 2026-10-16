@@ -1,7 +1,7 @@
 import { all, get, run, tx, type DB } from './db.ts';
 import { clock, notificationSettings, notify, nowIso } from './core.ts';
 import { latestPublished } from './schemes.ts';
-import { addDays, inQuietHours, todayIn, zonedParts, zonedToUtc } from './time.ts';
+import { addDays, inQuietHours, ruDate, todayIn, zonedParts, zonedToUtc } from './time.ts';
 
 const MAX_LATE_MS = 2 * 3600_000; // после перезапуска не рассылаем напоминания старше двух часов
 
@@ -63,11 +63,11 @@ export function tick(db: DB) {
     if (!pub?.control_date) continue;
     const today = todayIn(v.timezone, now);
     if (addDays(today, 1) === pub.control_date || today === pub.control_date) {
-      notify(db, v.client_id, { kind: 'control_date', title: `Контрольная дата ${pub.control_date}: специалист просил пересдать анализы`, public_title: 'Напоминание от специалиста', link: '/labs', dedupe_key: `ctl:c:${v.scheme_id}:${pub.control_date}` });
+      notify(db, v.client_id, { kind: 'control_date', title: `${ruDate(pub.control_date)} — контрольная дата: специалист просил пересдать анализы`, public_title: 'Напоминание от специалиста', link: '/labs', dedupe_key: `ctl:c:${v.scheme_id}:${pub.control_date}` });
     }
     const link = get(db, 'SELECT 1 FROM care_links WHERE client_id = ? AND specialist_id = ? AND revoked_at IS NULL', v.client_id, v.specialist_id);
     if (link && addDays(today, 3) >= pub.control_date && today <= pub.control_date) {
-      notify(db, v.specialist_id, { kind: 'control_date', title: `${v.client_name}: контрольная дата ${pub.control_date}`, public_title: 'Приближается контрольная дата', link: `/clients/${v.client_id}`, dedupe_key: `ctl:s:${v.scheme_id}:${pub.control_date}` });
+      notify(db, v.specialist_id, { kind: 'control_date', title: `${v.client_name}: контрольная дата ${ruDate(pub.control_date)}`, public_title: 'Приближается контрольная дата', link: `/clients/${v.client_id}`, dedupe_key: `ctl:s:${v.scheme_id}:${pub.control_date}` });
     }
   }
   return { sent, checked: due.length, at: nowIso() };
