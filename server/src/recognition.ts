@@ -25,6 +25,8 @@ export type Recognition = {
   lab: string | null;
   collected_at: string | null;
   patient_name: string | null;
+  sex?: 'female' | 'male' | null;
+  birth_date?: string | null;
   rows: RecognizedRow[];
   note?: string;
 };
@@ -69,12 +71,17 @@ export function parseMeta(text: string) {
   const pm = text.match(/(?:[Пп]ациент|ПАЦИЕНТ|ФИО|Ф\.\s?И\.\s?О\.)\s*[:\-]?\s*([А-ЯЁ][а-яё]+(?:[ \t]+[А-ЯЁ][а-яё]+\.?){1,2})/);
   const pl = pm ? null : text.match(/(?:Patient|PATIENT|Full name)\s*[:\-]?\s*([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+\.?){1,2})/);
   const patient = pm?.[1] ?? pl?.[1] ?? null;
-  return { lab, collected_at, patient_name: patient ? patient.trim() : null };
+  const sm = text.match(/(?:Пол|Sex|Gender)\s*[:\-]?\s*(Жен|Муж|Ж|М|Female|Male|F|M)(?![а-яa-z])/i);
+  const sex = sm ? (/^(ж|f)/i.test(sm[1]) ? 'female' as const : 'male' as const) : null;
+  const bm = text.match(/(?:Дата рождения|Date of birth|DOB)\s*[:\-]?\s*(\d{2})[./](\d{2})[./](\d{4})/i);
+  const birth_date = bm ? `${bm[3]}-${bm[2]}-${bm[1]}` : null;
+  return { lab, collected_at, patient_name: patient ? patient.trim() : null, sex, birth_date };
 }
 
 /** Разбор хвоста строки после названия показателя: значение, единица, интервал, отметка. */
 export function parseValuePart(rest: string, analyte?: Analyte): Omit<RecognizedRow, 'name' | 'analyte_code'> | null {
-  let s = ' ' + rest.replace(/ /g, ' ').replace(/\s+/g, ' ') + ' ';
+  // «см. комм.» — интервал вынесен в комментарий; числа после пометки к интервалу результата не относятся
+  let s = ' ' + rest.replace(/ /g, ' ').replace(/\s+/g, ' ').replace(/см\.?\s*комм?\.?.*$/i, '') + ' ';
   const low: string[] = [];
   let lab_flag = '';
   const fm = s.match(/(↑|↓|\*|\s[HLВН](?=\s))/);
@@ -113,7 +120,7 @@ export function parseValuePart(rest: string, analyte?: Analyte): Omit<Recognized
   return { value_num, value_text, unit, ref_low, ref_high, ref_text, lab_flag, low_confidence: low };
 }
 
-const GENERIC_LINE = new RegExp(String.raw`^([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9 ,()\-]{2,60}?)\s+([<>]?\s*${NUM}\s.*)$`);
+const GENERIC_LINE = new RegExp(String.raw`^([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9 ,()\-]{2,60}?)\s+([<>]?\s*${NUM}[*↑↓]?\s.*)$`);
 
 export function parseLines(lines: string[]): RecognizedRow[] {
   const rows: RecognizedRow[] = [];

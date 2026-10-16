@@ -140,15 +140,15 @@ export function MorePage() {
 export function SettingsPage() {
   const { me, setMe } = useAuth();
   const toast = useToast();
-  const [f, setF] = useState({ name: me!.name, timezone: me!.timezone, title: me!.title ?? '', ...me!.settings, quiet_from: me!.settings.quiet_from ?? '', quiet_to: me!.settings.quiet_to ?? '' });
+  const [f, setF] = useState({ name: me!.name, timezone: me!.timezone, title: me!.title ?? '', sex: me!.sex ?? '', birth_date: me!.birth_date ?? '', ...me!.settings, quiet_from: me!.settings.quiet_from ?? '', quiet_to: me!.settings.quiet_to ?? '' });
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(false);
   const save = async () => {
     setBusy(true);
     try {
-      const { name, timezone, title, ...settings } = f;
+      const { name, timezone, title, sex, birth_date, ...settings } = f;
       if (settings.channel_browser && 'Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
-      setMe(await api.patch<Me>('/me', { name, timezone, ...(me!.role === 'specialist' ? { title } : {}), settings }));
+      setMe(await api.patch<Me>('/me', { name, timezone, ...(me!.role === 'specialist' ? { title } : { sex, birth_date }), settings }));
       toast('Сохранено');
     } catch (e) { toast(errorText(e)); } finally { setBusy(false); }
   };
@@ -163,6 +163,16 @@ export function SettingsPage() {
           <h2>Профиль</h2>
           <Field label="Имя" htmlFor="s-name"><input id="s-name" className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
           {me!.role === 'specialist' && <Field label="Специализация" htmlFor="s-title"><input id="s-title" className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>}
+          {me!.role === 'client' && (
+            <div className="grid-2">
+              <Field label="Пол" htmlFor="s-sex" hint="Нужен для справочных интервалов">
+                <select id="s-sex" className="select" value={f.sex} onChange={(e) => setF({ ...f, sex: e.target.value as any })}>
+                  <option value="">Не указан</option><option value="female">Женский</option><option value="male">Мужской</option>
+                </select>
+              </Field>
+              <Field label="Дата рождения" htmlFor="s-birth"><input id="s-birth" type="date" className="input" value={f.birth_date} onChange={(e) => setF({ ...f, birth_date: e.target.value })} /></Field>
+            </div>
+          )}
           <Field label="Часовой пояс" htmlFor="s-tz" hint={me!.role === 'client' ? 'При смене пояса время приёмов по местным часам сохранится' : undefined}>
             <select id="s-tz" className="select" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })}>
               {[...new Set([f.timezone, ...timezoneOptions()])].map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}

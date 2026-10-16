@@ -182,8 +182,21 @@ export function UploadForm({ clientId, base }: { clientId: string; base: string 
 
 // ---------- Проверка распознавания ----------
 
-type Draft = { name: string; value_text: string; unit: string; ref_low: string; ref_high: string; lab_flag: string };
-const toDraft = (r: Result): Draft => ({ name: r.name, value_text: r.value_text, unit: r.unit, ref_low: r.ref_low == null ? '' : String(r.ref_low).replace('.', ','), ref_high: r.ref_high == null ? '' : String(r.ref_high).replace('.', ','), lab_flag: r.lab_flag });
+type Draft = { name: string; value_text: string; unit: string };
+const toDraft = (r: Result): Draft => ({ name: r.name, value_text: r.value_text, unit: r.unit });
+
+/** Интервал не редактируется: он из бланка или справочный — и это подписано. */
+export function RefInfo({ r }: { r: Pick<Result, 'ref_text' | 'ref_source' | 'ref_note'> }) {
+  if (r.ref_text) {
+    return (
+      <div>
+        <div className="num">{r.ref_text}</div>
+        <div className="tiny muted" title={r.ref_note ?? undefined}>{r.ref_source === 'reference' ? 'справочный' : 'из бланка'}</div>
+      </div>
+    );
+  }
+  return <div className="tiny muted">{r.ref_note === 'sex' ? 'укажите пол в профиле' : 'нет интервала'}</div>;
+}
 
 export function DocumentReview({ base }: { clientId?: string; base: string }) {
   const { docId: id = '' } = useParams();
@@ -292,7 +305,7 @@ export function DocumentReview({ base }: { clientId?: string; base: string }) {
               </div>
             </div>
           )}
-          {(doc.status === 'error' || (doc.status === 'needs_review' && doc.results.length === 0)) && <button className="btn ghost small mt-16" disabled={busy} onClick={() => act(() => api.post(`/documents/${id}/retry`))}><Icon name="refresh" size={16} />Распознать ещё раз</button>}
+          {(doc.status === 'error' || doc.status === 'needs_review') && <button className="btn ghost small mt-16" disabled={busy} onClick={() => act(() => api.post(`/documents/${id}/retry`))}><Icon name="refresh" size={16} />Распознать ещё раз</button>}
           <button className="btn ghost small mt-16" onClick={remove} style={{ color: 'var(--danger)' }}><Icon name="trash" size={16} />Удалить документ</button>
         </div>
       </div>
@@ -311,7 +324,7 @@ function ResultRow({ r, editable, onChange }: { r: Result; editable: boolean; on
   const save = async () => {
     if (!dirty) return;
     setErr('');
-    try { onChange(await api.patch<Doc>(`/results/${r.id}`, { ...v, ref_text: '' })); } catch (e) { setErr(errorText(e)); }
+    try { onChange(await api.patch<Doc>(`/results/${r.id}`, v)); } catch (e) { setErr(errorText(e)); }
   };
   const del = async () => {
     try { onChange(await api.del<Doc>(`/results/${r.id}`)); } catch (e) { toast(errorText(e)); }
@@ -322,7 +335,7 @@ function ResultRow({ r, editable, onChange }: { r: Result; editable: boolean; on
         <div className="name"><b>{r.name}</b>{r.edited_by_name && <div className="tiny muted">исправил(а) {r.edited_by_name}{r.recognized ? `, распознано: ${r.recognized.value_text} ${r.recognized.unit}` : ''}</div>}</div>
         <div className="num"><b>{r.value_text}</b> {r.lab_flag && <span className="badge warn">{r.lab_flag}</span>}</div>
         <div>{r.unit || '—'}</div>
-        <div className="num">{r.ref_text || '—'}</div>
+        <RefInfo r={r} />
         <PositionBadge r={r} />
       </div>
     );
@@ -335,10 +348,7 @@ function ResultRow({ r, editable, onChange }: { r: Result; editable: boolean; on
       <div className="name">{inp('name', 'Показатель', 'name')}{low('name') && <div className="tiny" style={{ color: 'var(--warn)' }}>нет в справочнике — проверьте название</div>}</div>
       <div><span className="rlabel">Результат</span>{inp('value_text', 'Результат', 'value', { inputMode: 'decimal' })}</div>
       <div><span className="rlabel">Единицы</span>{inp('unit', 'Единицы', 'unit')}</div>
-      <div className="row wrap" style={{ '--gap': '4px' } as any}><span className="rlabel" style={{ width: '100%' }}>Интервал</span>
-        <input className={`input ${low('ref') ? 'low' : ''}`} value={v.ref_low} onChange={(e) => setV({ ...v, ref_low: e.target.value })} onBlur={save} inputMode="decimal" placeholder="от" aria-label={`Нижняя граница: ${r.name}`} />
-        <input className={`input ${low('ref') ? 'low' : ''}`} value={v.ref_high} onChange={(e) => setV({ ...v, ref_high: e.target.value })} onBlur={save} inputMode="decimal" placeholder="до" aria-label={`Верхняя граница: ${r.name}`} />
-      </div>
+      <div><span className="rlabel">Интервал</span><RefInfo r={r} /></div>
       <button className="btn ghost icon small" onClick={del} aria-label={`Удалить ${r.name}`}><Icon name="trash" size={18} /></button>
       {(r.low_confidence.length > 0 || err || r.edited_by_name) && (
         <div className="tiny" style={{ gridColumn: '1 / -1', color: err ? 'var(--danger)' : 'var(--text-3)' }}>
@@ -352,7 +362,7 @@ function ResultRow({ r, editable, onChange }: { r: Result; editable: boolean; on
 
 function AddResultForm({ docId, onDone }: { docId: string; onDone: (d: Doc) => void }) {
   const ref = useData(() => api.get<{ code: string; name: string; unit: string }[]>('/reference/analytes'), []);
-  const [v, setV] = useState({ name: '', value_text: '', unit: '', ref_low: '', ref_high: '' });
+  const [v, setV] = useState({ name: '', value_text: '', unit: '' });
   const [err, setErr] = useState('');
   const set = (k: keyof typeof v) => (e: { target: { value: string } }) => setV({ ...v, [k]: e.target.value });
   const submit = async (e: FormEvent) => {
@@ -371,9 +381,8 @@ function AddResultForm({ docId, onDone }: { docId: string; onDone: (d: Doc) => v
       <div className="grid-2">
         <Field label="Результат" htmlFor="ar-v"><input id="ar-v" className="input" inputMode="decimal" value={v.value_text} onChange={set('value_text')} placeholder="18,4" /></Field>
         <Field label="Единицы" htmlFor="ar-u"><input id="ar-u" className="input" value={v.unit} onChange={set('unit')} placeholder="нг/мл" /></Field>
-        <Field label="Интервал от" htmlFor="ar-l"><input id="ar-l" className="input" inputMode="decimal" value={v.ref_low} onChange={set('ref_low')} /></Field>
-        <Field label="Интервал до" htmlFor="ar-h"><input id="ar-h" className="input" inputMode="decimal" value={v.ref_high} onChange={set('ref_high')} /></Field>
       </div>
+      <p className="tiny muted">{ty('Интервал вводить не нужно: подставим справочный для взрослых и подпишем, откуда он.')}</p>
       {err && <Notice kind="danger">{err}</Notice>}
       <button className="btn primary block">Добавить</button>
     </form>
@@ -424,7 +433,7 @@ export function AnalytePage({ clientId, base, role }: { clientId: string; base: 
                 <tr key={p.result_id}>
                   <td className="nowrap">{fmtDate(p.date, { year: true })}</td>
                   <td className="num nowrap"><b>{p.value_text}</b> {p.original_unit}{p.converted && <div className="tiny muted">= {num(p.value)} {s.unit}</div>}</td>
-                  <td className="nowrap">{p.ref_text || '—'}</td>
+                  <td className="nowrap">{p.ref_text || '—'}{p.ref_source === 'reference' && <div className="tiny muted">справочный</div>}</td>
                   <td>{p.lab ?? '—'}</td>
                   <td><Link to={`${base}/documents/${p.document_id}`} className="small nowrap">Бланк</Link></td>
                 </tr>
@@ -447,8 +456,10 @@ function Explanation({ r }: { r: any }) {
     <div className="stack">
       <div className="level">
         <div className="level-head"><span className="badge">Данные лаборатории</span><span className="tiny muted">из бланка, {fmtDate(r.collected_at, { year: true })}</span></div>
-        <div className="row wrap"><span className="value">{r.value_text}<small>{r.unit}</small></span>{r.ref_text && <span className="small muted">интервал {r.ref_text} {r.unit}</span>}{r.lab_flag && <span className="badge warn">отметка лаборатории: {r.lab_flag}</span>}</div>
+        <div className="row wrap"><span className="value">{r.value_text}<small>{r.unit}</small></span>{r.ref_text && <span className="small muted">{r.ref_source === 'reference' ? 'справочный интервал' : 'интервал из бланка'} {r.ref_text} {r.unit}</span>}{r.lab_flag && <span className="badge warn">отметка лаборатории: {r.lab_flag}</span>}</div>
         <RangeBar r={r} />
+        {r.ref_source === 'reference' && r.ref_note && <p className="tiny muted mt-8">{r.ref_note}. В бланке интервала нет — лаборатории могут использовать свои значения.</p>}
+        {!r.ref_text && r.ref_note === 'sex' && <p className="tiny muted mt-8">Интервал зависит от пола — укажите его в <Link to="/settings">настройках профиля</Link>.</p>}
       </div>
       {e && (
         <div className="level auto">

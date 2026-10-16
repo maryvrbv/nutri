@@ -126,3 +126,26 @@ test('сверка ФИО в документе', () => {
   assert.ok(!sameperson('Анна Иванова', 'Петрова Мария'));
   assert.ok(sameperson('Анна Иванова', null));
 });
+
+test('бланк Инвитро: интервал «см. комм.» не путается с числами из комментария', async () => {
+  const { parseText } = await import('../src/recognition.ts');
+  const r = parseText(['Пол: Жен', 'Дата рождения: 01.10.1993', 'Дата взятия образца: 14.10.2026 12:32',
+    'Ферритин 58 мкг/л 15 - 204 Рекомендуемые значения', 'Витамин 25(OH) D 25.0* нг/мл см.комм. < 10 нг/мл - выраженный дефицит;'].join('\n'));
+  assert.equal(r.sex, 'female');
+  assert.equal(r.birth_date, '1993-10-01');
+  assert.equal(r.collected_at, '2026-10-14');
+  const d = r.rows.find((x) => x.analyte_code === 'vitamin_d')!;
+  assert.equal(d.value_num, 25);
+  assert.equal(d.ref_high, null);
+  assert.equal(d.lab_flag, '*');
+});
+
+test('справочные интервалы: по полу, в единицах результата', async () => {
+  const { referenceRange } = await import('../src/reference.ts');
+  assert.deepEqual((referenceRange('ferritin', 'мкг/л', { sex: 'male' }) as any).low, 30);
+  assert.ok('missing' in (referenceRange('ferritin', 'нг/мл', {}) as any));
+  const d = referenceRange('vitamin_d', 'нмоль/л', {}) as any;
+  assert.equal(Math.round(d.low), 75);
+  assert.equal(referenceRange('ferritin', 'нг/мл', { sex: 'female', birth_date: '2015-01-01' }, '2026-10-14'), null, 'для детей не подставляем');
+  assert.equal(referenceRange('crp', 'мг/л', {}), null);
+});

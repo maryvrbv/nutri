@@ -45,7 +45,7 @@ export const api = {
 export const rid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
 
 export type Me = {
-  id: string; email: string; name: string; role: 'client' | 'specialist'; timezone: string; title: string | null; today: string;
+  id: string; email: string; name: string; role: 'client' | 'specialist'; timezone: string; title: string | null; today: string; sex: 'female' | 'male' | null; birth_date: string | null;
   settings: { quiet_from: string | null; quiet_to: string | null; channel_inapp: boolean; channel_browser: boolean; hide_sensitive: boolean; intake_reminders: boolean };
 };
 
@@ -80,7 +80,7 @@ export type Stats = { planned_total: number; past: number; taken: number; skippe
 
 export type Result = {
   id: string; document_id: string; analyte_code: string | null; name: string; value_num: number | null; value_text: string; unit: string;
-  ref_low: number | null; ref_high: number | null; ref_text: string; lab_flag: string; collected_at: string | null; low_confidence: string[];
+  ref_low: number | null; ref_high: number | null; ref_text: string; ref_source?: 'lab' | 'reference' | null; ref_note?: string | null; lab_flag: string; collected_at: string | null; low_confidence: string[];
   recognized: any; source: 'recognized' | 'manual'; status: 'draft' | 'confirmed'; edited_by_name?: string | null; edited_at?: string | null;
   lab?: string | null; key?: string; count?: number;
 };

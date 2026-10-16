@@ -286,6 +286,14 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX audit_client ON audit_log(client_id, at);
   `,
+  // Справочные интервалы: источник интервала результата и профиль для их подбора
+  `
+  ALTER TABLE results ADD COLUMN ref_source TEXT;
+  ALTER TABLE results ADD COLUMN ref_note TEXT;
+  ALTER TABLE users ADD COLUMN sex TEXT;
+  ALTER TABLE users ADD COLUMN birth_date TEXT;
+  UPDATE results SET ref_source = 'lab' WHERE ref_low IS NOT NULL OR ref_high IS NOT NULL;
+  `,
 ];
 
 export function openDb(file: string): DB {

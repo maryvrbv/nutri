@@ -95,7 +95,8 @@ export function createApp(deps: AppDeps) {
   const me = (u: User) => {
     const s = notificationSettings(db, u.id);
     const sp = u.role === 'specialist' ? get(db, 'SELECT title FROM specialist_profiles WHERE user_id = ?', u.id) : null;
-    return { ...u, title: sp?.title ?? null, today: todayIn(u.timezone, clock.now()), settings: settingsOut(s) };
+    const prof = get(db, 'SELECT sex, birth_date FROM users WHERE id = ?', u.id);
+    return { ...u, title: sp?.title ?? null, sex: prof?.sex ?? null, birth_date: prof?.birth_date ?? null, today: todayIn(u.timezone, clock.now()), settings: settingsOut(s) };
   };
   const settingsOut = (s: any) => ({
     quiet_from: s.quiet_from, quiet_to: s.quiet_to, channel_inapp: !!s.channel_inapp, channel_browser: !!s.channel_browser,
@@ -141,6 +142,13 @@ export function createApp(deps: AppDeps) {
         if (!isValidTimeZone(b.timezone)) throw bad('Неизвестный часовой пояс');
         run(db, 'UPDATE users SET timezone = ? WHERE id = ?', b.timezone, u.id);
         if (u.role === 'client') schemes.rescheduleForTimezone(db, u.id, b.timezone);
+      }
+      if (b.sex !== undefined || b.birth_date !== undefined) {
+        if (b.sex !== undefined && ![null, '', 'female', 'male'].includes(b.sex)) throw bad('Неверное значение пола');
+        if (b.birth_date !== undefined && b.birth_date !== null && b.birth_date !== '' && !isDate(b.birth_date)) throw bad('Неверная дата рождения');
+        if (b.sex !== undefined) run(db, 'UPDATE users SET sex = ? WHERE id = ?', b.sex || null, u.id);
+        if (b.birth_date !== undefined) run(db, 'UPDATE users SET birth_date = ? WHERE id = ?', b.birth_date || null, u.id);
+        labs.refreshReferenceRanges(db, u.id);
       }
       if (b.title !== undefined && u.role === 'specialist') run(db, 'UPDATE specialist_profiles SET title = ? WHERE user_id = ?', String(b.title).slice(0, 120), u.id);
       const s = b.settings;
@@ -526,7 +534,8 @@ export function createApp(deps: AppDeps) {
     const { docId } = docAccess(req);
     const d = get(db, 'SELECT status, (SELECT COUNT(*) FROM results r WHERE r.document_id = documents.id) AS n FROM documents WHERE id = ?', docId)!;
     // Повтор — после ошибки или если распознавание ничего не нашло (например, фото загрузили до подключения OCR)
-    if (!(d.status === 'error' || (d.status === 'needs_review' && d.n === 0))) throw new HttpError(409, 'bad_state', 'Повторить можно только после ошибки или если значений нет');
+    // Повтор — до подтверждения: распознанные строки заменяются, внесённые вручную остаются
+    if (d.status !== 'error' && d.status !== 'needs_review') throw new HttpError(409, 'bad_state', 'Подтверждённый документ сначала откройте на проверку');
     run(db, `DELETE FROM results WHERE document_id = ? AND source = 'recognized'`, docId);
     setImmediate(() => { labs.processDocument(db, files, recognizer, docId).catch(() => {}); });
   }));

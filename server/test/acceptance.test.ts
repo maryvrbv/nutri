@@ -309,6 +309,31 @@ test('Фото бланка распознаётся локальным OCR, в�
   await client.del(`/api/documents/${up.body.id}`);
 });
 
+test('Интервал берётся из бланка или справочника, пользователь его не вводит', async () => {
+  const broken = Buffer.from('%PDF-1.4\nне pdf, ручной ввод', 'utf8');
+  const up = await client.raw('POST', '/api/clients/me/documents?name=manual.pdf&collected_at=2026-10-13&force=1', broken, { 'content-type': 'application/pdf' });
+  await waitFor(async () => { const d = await client.get(`/api/documents/${up.body.id}`); return d.body.status === 'error' ? d.body : undefined; });
+  // Пользователь пытается задать свой интервал — он игнорируется
+  const add = await client.post(`/api/documents/${up.body.id}/results`, { name: 'Ферритин', value_text: '40', unit: 'нг/мл', ref_low: 1, ref_high: 2 });
+  let r = add.body.results[0];
+  assert.equal(r.ref_low, null, 'для ферритина интервал зависит от пола, а пол не указан');
+  assert.equal(r.ref_note, 'sex');
+  await client.patch('/api/me', { sex: 'female', birth_date: '1993-10-01' });
+  r = (await client.get(`/api/documents/${up.body.id}`)).body.results[0];
+  assert.equal(r.ref_source, 'reference');
+  assert.equal(r.ref_low, 13);
+  assert.equal(r.ref_high, 150);
+  assert.match(r.ref_note, /MedlinePlus/);
+  const add2 = await client.post(`/api/documents/${up.body.id}/results`, { name: 'Витамин 25(OH) D', value_text: '25', unit: 'нг/мл' });
+  const d = add2.body.results.find((x: any) => x.analyte_code === 'vitamin_d');
+  assert.equal(d.ref_text, '30–80');
+  await client.post(`/api/documents/${up.body.id}/confirm`);
+  const rv = await client.get(`/api/results/${d.id}`);
+  assert.match(rv.body.explanation.text, /справочн/);
+  assert.match(rv.body.explanation.text, /ниже нижней границы/);
+  await client.del(`/api/documents/${up.body.id}`);
+});
+
 test('Напоминания уважают тихие часы и отметки', async () => {
   // 17.10 (суббота) 09:00 МСК: витамин D
   setNow('2026-10-17T06:00:30Z');

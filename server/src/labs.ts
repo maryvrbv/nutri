@@ -1,10 +1,42 @@
 import { all, get, run, tx, type DB, type Row } from './db.ts';
 import { FileStore, HttpError, activeLink, audit, bad, clock, id, notFound, notify, nowIso, sha256, type User } from './core.ts';
 import type { Recognizer } from './recognition.ts';
-import { REFERENCE_VERSION, explain, findAnalyte, getAnalyte, normalizeUnit, toBase } from './reference.ts';
+import { REFERENCE_VERSION, explain, findAnalyte, getAnalyte, normalizeUnit, referenceRange, toBase } from './reference.ts';
 import { isDate, todayIn } from './time.ts';
 
 export const MAX_FILE = 20 * 1024 * 1024;
+
+/**
+ * Интервал результата: из бланка (ref_source = 'lab'), а если в бланке его нет —
+ * справочный для взрослых по полу из профиля ('reference'). Пользователь интервал не вводит.
+ */
+function resolveRef(db: DB, ownerId: string, r: { analyte_code: string | null; unit: string; ref_low: number | null; ref_high: number | null; ref_text: string; collected_at?: string | null }) {
+  if (r.ref_low != null || r.ref_high != null) return { ref_low: r.ref_low, ref_high: r.ref_high, ref_text: r.ref_text, ref_source: 'lab', ref_note: null as string | null };
+  const p = get<{ sex: string | null; birth_date: string | null }>(db, 'SELECT sex, birth_date FROM users WHERE id = ?', ownerId) ?? { sex: null, birth_date: null };
+  const ref = referenceRange(r.analyte_code, r.unit, p, r.collected_at);
+  if (ref && 'missing' in ref) return { ref_low: null, ref_high: null, ref_text: '', ref_source: null, ref_note: 'sex' };
+  if (!ref) return { ref_low: null, ref_high: null, ref_text: '', ref_source: null, ref_note: null };
+  return { ref_low: ref.low, ref_high: ref.high, ref_text: ref.text, ref_source: 'reference', ref_note: ref.note };
+}
+
+/** Пересчитать справочные интервалы клиента (например, после того как указан пол). Интервалы из бланков не трогаются. */
+export function refreshReferenceRanges(db: DB, ownerId: string) {
+  const rows = all(db, `SELECT * FROM results WHERE owner_id = ? AND (ref_source IS NULL OR ref_source = 'reference')`, ownerId);
+  for (const r of rows) {
+    const x = resolveRef(db, ownerId, { analyte_code: r.analyte_code, unit: r.unit, collected_at: r.collected_at, ref_low: null, ref_high: null, ref_text: "" });
+    run(db, 'UPDATE results SET ref_low = ?, ref_high = ?, ref_text = ?, ref_source = ?, ref_note = ? WHERE id = ?', x.ref_low, x.ref_high, x.ref_text, x.ref_source, x.ref_note, r.id);
+    if (r.status === 'confirmed') writeExplanation(db, { ...r, ...x });
+  }
+}
+
+function writeExplanation(db: DB, r: Row) {
+  const input = { name: r.name, analyte_code: r.analyte_code, value_num: r.value_num, value_text: r.value_text, unit: r.unit,
+    ref_low: r.ref_low, ref_high: r.ref_high, ref_text: r.ref_text, lab_flag: r.lab_flag, ref_source: r.ref_source, ref_note: r.ref_note };
+  const e = explain(input);
+  run(db, 'DELETE FROM explanations WHERE result_id = ?', r.id);
+  run(db, `INSERT INTO explanations (id, result_id, generator, version, created_at, input, status, text, source_title, source_url)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`, id(), r.id, 'rules', REFERENCE_VERSION, nowIso(), JSON.stringify(input), e.status, e.text, e.source?.title ?? null, e.source?.url ?? null);
+}
 
 export function sniffMime(buf: Buffer): string | null {
   if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf';
@@ -64,11 +96,17 @@ export async function processDocument(db: DB, files: FileStore, recognizer: Reco
       run(db, `UPDATE documents SET status = 'needs_review', pages = ?, lab = COALESCE(lab, ?), collected_at = ?, patient_name = ?,
         ownership = ?, recognizer = ?, error = ? WHERE id = ?`,
         r.pages, r.lab, collected, r.patient_name, ownership, r.recognizer, r.note ?? null, docId);
+      // Пол и дата рождения из бланка дополняют профиль, если там пусто: по ним подбираются справочные интервалы
+      if (ownership === 'ok' && (r.sex || r.birth_date)) {
+        run(db, 'UPDATE users SET sex = COALESCE(sex, ?), birth_date = COALESCE(birth_date, ?) WHERE id = ?', r.sex ?? null, r.birth_date ?? null, doc.owner_id);
+      }
       r.rows.forEach((row, i) => {
+        const ref = resolveRef(db, doc.owner_id, { ...row, collected_at: collected });
+        const low = ref.ref_source === 'lab' ? row.low_confidence : row.low_confidence.filter((f) => f !== 'ref');
         run(db, `INSERT INTO results (id, document_id, owner_id, position, analyte_code, name, value_num, value_text, unit, ref_low, ref_high,
-          ref_text, lab_flag, collected_at, low_confidence, recognized, source, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recognized', 'draft')`,
-          id(), docId, doc.owner_id, i, row.analyte_code, row.name, row.value_num, row.value_text, row.unit, row.ref_low, row.ref_high,
-          row.ref_text, row.lab_flag, collected, JSON.stringify(row.low_confidence), JSON.stringify(row));
+          ref_text, ref_source, ref_note, lab_flag, collected_at, low_confidence, recognized, source, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recognized', 'draft')`,
+          id(), docId, doc.owner_id, i, row.analyte_code, row.name, row.value_num, row.value_text, row.unit, ref.ref_low, ref.ref_high,
+          ref.ref_text, ref.ref_source, ref.ref_note, row.lab_flag, collected, JSON.stringify(low), JSON.stringify(row));
       });
       audit(db, { actor: null, client: doc.owner_id, entity: 'document', entity_id: docId, action: 'recognized', data: { rows: r.rows.length, recognizer: r.recognizer } });
       notify(db, doc.owner_id, { kind: 'recognition_ready', title: 'Анализ распознан — проверьте значения', public_title: 'Документ обработан', link: `/labs/documents/${docId}`, dedupe_key: `rec:${docId}` });
@@ -126,9 +164,7 @@ function cleanResult(input: any) {
     value_text,
     value_num: /^[<>≤≥]/.test(value_text) ? null : num(value_text),
     unit: normalizeUnit(String(input?.unit ?? '')),
-    ref_low: num(input?.ref_low),
-    ref_high: num(input?.ref_high),
-    ref_text: String(input?.ref_text ?? '').trim(),
+
     lab_flag: String(input?.lab_flag ?? '').trim().slice(0, 20),
   };
 }
@@ -139,14 +175,18 @@ export function editResult(db: DB, actor: User, resultId: string, input: any) {
   if (!r) throw notFound();
   const doc = get(db, 'SELECT * FROM documents WHERE id = ?', r.document_id)!;
   assertEditable(doc);
-  const c = cleanResult({ ...r, ...input });
-  if (!c.ref_text && (c.ref_low != null || c.ref_high != null)) c.ref_text = [c.ref_low, c.ref_high].map((x) => x ?? '').join('–');
+  // Интервал пользователь не правит: из бланка он сохраняется, справочный пересчитывается под новое название и единицы
+  const c = cleanResult({ ...r, ...input, lab_flag: input.lab_flag ?? r.lab_flag });
+  const keepLab = r.ref_source === 'lab' && c.unit === r.unit;
+  const ref = keepLab
+    ? { ref_low: r.ref_low, ref_high: r.ref_high, ref_text: r.ref_text, ref_source: 'lab', ref_note: null }
+    : resolveRef(db, r.owner_id, { ...c, ref_low: null, ref_high: null, ref_text: '', collected_at: r.collected_at });
   tx(db, () => {
-    run(db, `UPDATE results SET name=?, analyte_code=?, value_text=?, value_num=?, unit=?, ref_low=?, ref_high=?, ref_text=?, lab_flag=?,
-      low_confidence='[]', edited_by=?, edited_at=? WHERE id=?`, c.name, c.analyte_code, c.value_text, c.value_num, c.unit, c.ref_low, c.ref_high,
-      c.ref_text, c.lab_flag, actor.id, nowIso(), resultId);
+    run(db, `UPDATE results SET name=?, analyte_code=?, value_text=?, value_num=?, unit=?, ref_low=?, ref_high=?, ref_text=?, ref_source=?, ref_note=?, lab_flag=?,
+      low_confidence='[]', edited_by=?, edited_at=? WHERE id=?`, c.name, c.analyte_code, c.value_text, c.value_num, c.unit, ref.ref_low, ref.ref_high,
+      ref.ref_text, ref.ref_source, ref.ref_note, c.lab_flag, actor.id, nowIso(), resultId);
     audit(db, { actor: actor.id, client: r.owner_id, entity: 'result', entity_id: resultId, action: 'edited',
-      data: { before: { value_text: r.value_text, unit: r.unit, ref_text: r.ref_text, name: r.name }, after: { value_text: c.value_text, unit: c.unit, ref_text: c.ref_text, name: c.name } } });
+      data: { before: { value_text: r.value_text, unit: r.unit, ref_text: r.ref_text, name: r.name }, after: { value_text: c.value_text, unit: c.unit, ref_text: ref.ref_text, name: c.name } } });
   });
 }
 
@@ -156,12 +196,12 @@ export function addResult(db: DB, actor: User, docId: string, input: any) {
   if (doc.status === 'error') run(db, `UPDATE documents SET status = 'needs_review' WHERE id = ?`, docId);
   else assertEditable(doc);
   const c = cleanResult(input);
-  if (!c.ref_text && (c.ref_low != null || c.ref_high != null)) c.ref_text = [c.ref_low, c.ref_high].map((x) => x ?? '').join('–');
+  const ref = resolveRef(db, doc.owner_id, { ...c, ref_low: null, ref_high: null, ref_text: '', collected_at: doc.collected_at });
   const rid = id();
   const pos = get<{ n: number }>(db, 'SELECT COALESCE(MAX(position), -1) + 1 AS n FROM results WHERE document_id = ?', docId)!.n;
   run(db, `INSERT INTO results (id, document_id, owner_id, position, analyte_code, name, value_num, value_text, unit, ref_low, ref_high, ref_text,
-    lab_flag, collected_at, source, status, edited_by, edited_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'manual', 'draft', ?, ?)`,
-    rid, docId, doc.owner_id, pos, c.analyte_code, c.name, c.value_num, c.value_text, c.unit, c.ref_low, c.ref_high, c.ref_text, c.lab_flag,
+    ref_source, ref_note, lab_flag, collected_at, source, status, edited_by, edited_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'manual', 'draft', ?, ?)`,
+    rid, docId, doc.owner_id, pos, c.analyte_code, c.name, c.value_num, c.value_text, c.unit, ref.ref_low, ref.ref_high, ref.ref_text, ref.ref_source, ref.ref_note, c.lab_flag,
     doc.collected_at, actor.id, nowIso());
   audit(db, { actor: actor.id, client: doc.owner_id, entity: 'result', entity_id: rid, action: 'added_manually', data: { name: c.name } });
   return rid;
@@ -217,14 +257,7 @@ export function confirmDocument(db: DB, actor: User, docId: string) {
   tx(db, () => {
     run(db, `UPDATE results SET status = 'confirmed', confirmed_by = ?, confirmed_at = ?, collected_at = ? WHERE document_id = ?`, actor.id, now, doc.collected_at, docId);
     run(db, `UPDATE documents SET status = 'confirmed', confirmed_by = ?, confirmed_at = ?, error = NULL WHERE id = ?`, actor.id, now, docId);
-    for (const r of results) {
-      const input = { name: r.name, analyte_code: r.analyte_code, value_num: r.value_num, value_text: r.value_text, unit: r.unit,
-        ref_low: r.ref_low, ref_high: r.ref_high, ref_text: r.ref_text, lab_flag: r.lab_flag };
-      const e = explain(input);
-      run(db, 'DELETE FROM explanations WHERE result_id = ?', r.id);
-      run(db, `INSERT INTO explanations (id, result_id, generator, version, created_at, input, status, text, source_title, source_url)
-        VALUES (?,?,?,?,?,?,?,?,?,?)`, id(), r.id, 'rules', REFERENCE_VERSION, now, JSON.stringify(input), e.status, e.text, e.source?.title ?? null, e.source?.url ?? null);
-    }
+    for (const r of results) writeExplanation(db, r);
     audit(db, { actor: actor.id, client: doc.owner_id, entity: 'document', entity_id: docId, action: 'confirmed', data: { results: results.length } });
     const link = activeLink(db, doc.owner_id);
     if (link && link.specialist_id !== actor.id) {
@@ -303,7 +336,7 @@ export function dynamics(db: DB, ownerId: string, key: string) {
     s.points.push({
       result_id: r.id, document_id: r.doc_id, file_name: r.file_name, date: r.collected_at, lab: r.lab,
       value: base ? base.value : r.value_num, value_text: r.value_text, original_unit: r.unit,
-      ref_low: r.ref_low != null ? r.ref_low * f : null, ref_high: r.ref_high != null ? r.ref_high * f : null, ref_text: r.ref_text,
+      ref_low: r.ref_low != null ? r.ref_low * f : null, ref_high: r.ref_high != null ? r.ref_high * f : null, ref_text: r.ref_text, ref_source: r.ref_source,
       lab_flag: r.lab_flag, converted: base ? r.unit !== base.unit : false,
     });
     series.set(sKey, s);
