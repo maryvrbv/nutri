@@ -14,6 +14,13 @@ ENVFILE=/etc/nutri.env
 [ "$(id -u)" = 0 ] || { echo "Запустите через sudo"; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
 
+# На маленьких машинах (1 ГБ памяти) сборке нужен файл подкачки
+if [ "$(awk '/MemTotal/ {print $2}' /proc/meminfo)" -lt 2000000 ] && ! swapon --show | grep -q .; then
+  echo "→ Файл подкачки 2 ГБ"
+  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap -q /swapfile && swapon /swapfile
+  grep -q /swapfile /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
+fi
+
 echo "→ Пакеты"
 apt-get update -qq
 apt-get install -y -qq curl git ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https >/dev/null
