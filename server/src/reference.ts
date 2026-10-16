@@ -32,7 +32,7 @@ export const ANALYTES: Analyte[] = [
     ranges: [{ sex: 'female', low: 13, high: 150, source: { title: 'MedlinePlus (NIH): Ferritin blood test', url: 'https://medlineplus.gov/ency/article/003490.htm' } }, { sex: 'male', low: 30, high: 400, source: { title: 'MedlinePlus (NIH): Ferritin blood test', url: 'https://medlineplus.gov/ency/article/003490.htm' } }],
   },
   {
-    code: 'vitamin_d', name: 'Витамин D (25-OH)', aliases: ['витамин d', '25-oh витамин d', '25(oh)d', '25-он витамин d', 'витамин d, 25-гидрокси', '25-гидроксикальциферол', 'vitamin d', '25-oh vitamin d', '25-hydroxyvitamin d', 'витамин d (25-oh)', 'витамин 25(oh) d', 'витамин 25-oh d', 'витамин d 25(oh)', '25(oh) витамин d', '25-oh d', 'витамин 25 (oh) d'],
+    code: 'vitamin_d', name: 'Витамин D (25-OH)', aliases: ['витамин d', '25-oh витамин d', '25(oh)d', '25-он витамин d', 'витамин d, 25-гидрокси', '25-гидроксикальциферол', 'vitamin d', '25-oh vitamin d', '25-hydroxyvitamin d', 'витамин d (25-oh)', 'витамин 25(oh) d', 'витамин 25(oh)', 'витамин 25-oh', 'витамин 25-oh d', 'витамин d 25(oh)', '25(oh) витамин d', '25-oh d', 'витамин 25 (oh) d'],
     baseUnit: 'нг/мл', factors: { 'нг/мл': 1, 'нмоль/л': 1 / 2.496 },
     about: '25-OH витамин D — основная форма витамина D в крови, по которой оценивают его обеспеченность. Витамин D участвует в обмене кальция и фосфора.',
     source: ML('vitamin-d-test', 'Vitamin D Test'),

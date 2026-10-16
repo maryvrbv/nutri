@@ -219,15 +219,19 @@ async function ocrImage(path: string) {
  */
 async function prepare(src: string, dir: string, n: number): Promise<string> {
   const p = (name: string) => join(dir, `${name}-${n}.png`);
+  const cv = (args: string[]) => run('convert', args, { timeout: 60_000 });
   try {
-    await run('convert', [src, '-auto-orient', '-resize', '2400x2400<', p('src')], { timeout: 60_000 });
-    await run('convert', [p('src'), '-colorspace', 'Gray', p('gray')], { timeout: 60_000 });
-    await run('convert', [p('src'), '-channel', 'R', '-separate', p('r')], { timeout: 60_000 });
-    await run('convert', [p('src'), '-channel', 'G', '-separate', p('g')], { timeout: 60_000 });
-    // Маска «красного»: красный канал заметно ярче зелёного, дыры от букв закрываем
-    await run('convert', [p('r'), p('g'), '-compose', 'minus_src', '-composite', '-threshold', '30%', '-morphology', 'Close', 'Disk:8', p('mask')], { timeout: 60_000 });
-    await run('convert', [p('gray'), '-negate', p('neg')], { timeout: 60_000 });
-    await run('convert', [p('gray'), p('neg'), p('mask'), '-composite', p('prep')], { timeout: 60_000 });
+    // Узкие скриншоты телефона увеличиваем по ширине: мелкий текст Tesseract читает плохо
+    await cv([src, '-auto-orient', '-resize', '2400x<', p('src')]);
+    await cv([p('src'), '-colorspace', 'Gray', p('gray')]);
+    await cv([p('src'), '-channel', 'R', '-separate', p('r')]);
+    await cv([p('src'), '-channel', 'G', '-separate', p('g')]);
+    // «Краснота» = красный − зелёный: высокая на заливке, низкая на белом тексте и на остальной странице
+    await cv([p('r'), p('g'), '-compose', 'minus_src', '-composite', p('red')]);
+    await cv([p('red'), '-threshold', '30%', '-morphology', 'Close', 'Disk:8', p('mask')]);
+    // Внутри заливки: заливка → белый фон, белый текст → чёрный
+    await cv([p('red'), '-level', '10%,40%', p('redlvl')]);
+    await cv([p('gray'), p('redlvl'), p('mask'), '-composite', p('prep')]);
     return p('prep');
   } catch {
     return src; // ImageMagick не установлен — распознаём как есть
