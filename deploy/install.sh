@@ -105,6 +105,14 @@ BK
 chmod 755 /usr/local/bin/nutri-backup
 echo "30 3 * * * nutri /usr/local/bin/nutri-backup" > /etc/cron.d/nutri-backup
 
+# Обновление одной короткой командой: sudo nutri-update
+cat > /usr/local/bin/nutri-update <<'UPD'
+#!/usr/bin/env bash
+set -e
+bash /opt/nutri/deploy/install.sh
+UPD
+chmod 755 /usr/local/bin/nutri-update
+
 if [ -z "${DOMAIN:-}" ]; then
   IP=$(curl -fsS https://api.ipify.org || curl -fsS https://ifconfig.me)
   DOMAIN="$(echo "$IP" | tr . -).sslip.io"
@@ -125,6 +133,7 @@ systemctl is-active -q nutri && echo "✓ Сервис запущен"
 echo
 echo "Готово: https://$DOMAIN"
 echo "Первый зарегистрированный аккаунт — специалист, дальше только по приглашениям."
+echo "Обновить сервис потом: sudo nutri-update"
 if [ "${NEWKEY:-}" = 1 ]; then
   echo
   echo "Сохраните ключ шифрования в надёжном месте (без него файлы анализов не расшифровать):"
