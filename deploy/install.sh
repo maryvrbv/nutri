@@ -55,11 +55,15 @@ chown nutri:nutri "$DATA" /var/backups/nutri
 chmod 700 "$DATA" /var/backups/nutri
 
 echo "→ Код"
-if [ -d "$APP/.git" ]; then
-  git -C "$APP" fetch -q origin "$BRANCH" && git -C "$APP" reset -q --hard "origin/$BRANCH"
-else
-  git clone -q --branch "$BRANCH" "$REPO" "$APP"
+git config --global --add safe.directory "$APP" 2>/dev/null || true
+if ! { [ -d "$APP/.git" ] && git -C "$APP" fetch -q origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" && git -C "$APP" reset -q --hard "origin/$BRANCH"; }; then
+  # Нет копии или она сломана — скачиваем код заново рядом и подменяем
+  rm -rf "$APP.new"
+  git clone -q --branch "$BRANCH" "$REPO" "$APP.new" || { echo "Не удалось скачать код с GitHub"; exit 1; }
+  rm -rf "$APP.old"; [ -d "$APP" ] && mv "$APP" "$APP.old"
+  mv "$APP.new" "$APP"
 fi
+echo "  версия $(git -C "$APP" log -1 --format='%h %s')"
 cd "$APP"
 npm ci --no-audit --no-fund --loglevel=error
 npm run build --silent >/dev/null
