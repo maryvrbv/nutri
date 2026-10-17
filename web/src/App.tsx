@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, LoginPage, RegisterPage, useAuth } from './auth';
-import { InvitePage } from './invite';
+import { InvitePage, JoinPage } from './invite';
 import { NotificationsProvider } from './notifications';
 import { ToastProvider } from './ui';
 import { TodayPage } from './client/Today';
@@ -25,6 +25,7 @@ function Routed() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/invite/:token" element={<InvitePage />} />
+        <Route path="/join/:token" element={<JoinPage />} />
         <Route path="*" element={<Navigate to={`/login${loc.pathname !== '/' ? `?next=${encodeURIComponent(loc.pathname + loc.search)}` : ''}`} replace />} />
       </Routes>
     );
@@ -34,6 +35,7 @@ function Routed() {
       <NotificationsProvider>
         <Routes>
           <Route path="/invite/:token" element={<InvitePage />} />
+        <Route path="/join/:token" element={<JoinPage />} />
           <Route element={<SpecLayout />}>
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/clients/:id" element={<ClientCard />}>
@@ -63,6 +65,7 @@ function Routed() {
     <NotificationsProvider>
       <Routes>
         <Route path="/invite/:token" element={<InvitePage />} />
+        <Route path="/join/:token" element={<JoinPage />} />
         <Route element={<ClientLayout />}>
           <Route path="/today" element={<TodayPage />} />
           <Route path="/scheme" element={<SchemePage />} />

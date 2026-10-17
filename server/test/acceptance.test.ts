@@ -458,3 +458,37 @@ test('Закрытая регистрация: только первый акк�
   assert.equal(r.body.role, 'client', 'по приглашению создаётся только клиент');
   await new Promise((res) => server.close(res));
 });
+
+test('Клиент приглашает своего специалиста при закрытой регистрации', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { openDb } = await import('../src/db.ts');
+  const { FileStore } = await import('../src/core.ts');
+  const { createApp } = await import('../src/app.ts');
+  const { builtinRecognizer } = await import('../src/recognition.ts');
+  const dir = mkdtempSync(join(tmpdir(), 'nutri-join-'));
+  const app = createApp({ db: openDb(join(dir, 'db')), files: new FileStore(join(dir, 'f')), recognizer: builtinRecognizer, openRegistration: false });
+  const server = app.listen(0);
+  await new Promise((r) => server.once('listening', r));
+  const base = `http://127.0.0.1:${(server.address() as any).port}`;
+  const me = agent(base);
+  const owner = await me.post('/api/auth/register', { email: 'me@x.io', password: 'password123', name: 'Мария' });
+  assert.equal(owner.body.role, 'client');
+  const old = await me.post('/api/me/specialist-invite', {});
+  const inv = await me.post('/api/me/specialist-invite', {});
+  assert.equal(inv.status, 200);
+  assert.equal((await agent(base).get(`/api/join/${old.body.token}`)).body.state, 'revoked', 'новая ссылка отменяет прежнюю');
+  const doc = agent(base);
+  const preview = await doc.get(`/api/join/${inv.body.token}`);
+  assert.equal(preview.body.client_name, 'Мария');
+  // Регистрация по чужой или старой ссылке закрыта
+  assert.equal((await agent(base).post('/api/auth/register', { email: 'x@x.io', password: 'password123', name: 'Икс', join: old.body.token })).status, 403);
+  const r = await doc.post('/api/auth/register', { email: 'doc@x.io', password: 'password123', name: 'Ольга', join: inv.body.token });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.role, 'specialist');
+  assert.equal((await doc.get(`/api/clients/${owner.body.id}/summary`)).status, 200, 'доступ открыт сразу');
+  assert.equal((await me.get('/api/me/access')).body.active.specialist_name, 'Ольга');
+  assert.equal((await doc.post(`/api/join/${inv.body.token}/accept`, {})).status, 410, 'ссылка одноразовая');
+  await new Promise((res) => server.close(res));
+});

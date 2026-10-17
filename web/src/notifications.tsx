@@ -48,7 +48,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
 const KIND_ICON: Record<string, string> = {
   intake_reminder: 'clock', scheme_new: 'pill', scheme_updated: 'pill', scheme_cancelled: 'pill', recognition_ready: 'file', recognition_failed: 'alert',
-  comment: 'message', question: 'message', control_date: 'calendar', new_labs: 'flask', adverse: 'alert', client_connected: 'users', client_revoked: 'lock',
+  comment: 'message', question: 'message', control_date: 'calendar', new_labs: 'flask', adverse: 'alert', client_connected: 'users', specialist_connected: 'users', client_revoked: 'lock',
 };
 
 export function NotificationsList() {

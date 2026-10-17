@@ -109,10 +109,18 @@ export function createApp(deps: AppDeps) {
     if (deps.openRegistration === false) {
       const first = !get(db, 'SELECT 1 FROM users LIMIT 1');
       const invited = typeof req.body?.invite === 'string' && care.invitationIsValid(db, req.body.invite);
-      if (!first && !invited) throw new HttpError(403, 'registration_closed', 'Регистрация по приглашению. Попросите специалиста прислать ссылку.');
+      const joined = typeof req.body?.join === 'string' && care.specialistInviteIsValid(db, req.body.join);
+      if (!first && !invited && !joined) throw new HttpError(403, 'registration_closed', 'Регистрация по приглашению. Попросите специалиста прислать ссылку.');
       if (!first && invited) req.body.role = 'client';
+      if (!first && joined) req.body.role = 'specialist';
     }
-    const u = register(db, req.body);
+    const joinToken = req.body?.role === 'specialist' && typeof req.body?.join === 'string' ? req.body.join : null;
+    const u = tx(db, () => {
+      const user = register(db, req.body);
+      // Специалист по ссылке клиента: подключаем сразу, в одной транзакции с регистрацией
+      if (joinToken && care.specialistInviteIsValid(db, joinToken)) care.acceptSpecialistInvite(db, user, joinToken);
+      return user;
+    });
     setSession(res, u.id);
     return me(u);
   }));
@@ -254,6 +262,9 @@ export function createApp(deps: AppDeps) {
     care.acceptInvitation(db, u, String(req.params.token), !!req.body?.replace);
     return care.accessInfo(db, u);
   }));
+  app.post('/api/me/specialist-invite', h((req) => care.createSpecialistInvite(db, auth(req))));
+  app.get('/api/join/:token', h((req) => care.previewSpecialistInvite(db, String(req.params.token))));
+  app.post('/api/join/:token/accept', h((req) => care.acceptSpecialistInvite(db, auth(req), String(req.params.token))));
   app.get('/api/me/access', h((req) => {
     const u = auth(req); requireRole(u, 'client');
     return care.accessInfo(db, u);

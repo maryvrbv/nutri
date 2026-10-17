@@ -82,7 +82,8 @@ export function RegisterPage() {
   const params = new URLSearchParams(loc.search);
   const next = params.get('next') || '/';
   const fromInvite = next.startsWith('/invite/');
-  const [role, setRole] = useState<'client' | 'specialist'>(fromInvite ? 'client' : (params.get('role') as any) || 'client');
+  const fromJoin = next.startsWith('/join/');
+  const [role, setRole] = useState<'client' | 'specialist'>(fromInvite ? 'client' : fromJoin ? 'specialist' : (params.get('role') as any) || 'client');
   const [f, setF] = useState({ name: '', email: '', password: '', title: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Moscow' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [err, setErr] = useState('');
@@ -94,8 +95,13 @@ export function RegisterPage() {
     e.preventDefault();
     setBusy(true); setErr(''); setErrors({});
     try {
-      setMe(await api.post<Me>('/auth/register', { ...f, role, invite: fromInvite ? next.slice('/invite/'.length) : undefined }));
-      nav(next, { replace: true });
+      setMe(await api.post<Me>('/auth/register', {
+        ...f, role,
+        invite: fromInvite ? next.slice('/invite/'.length) : undefined,
+        join: fromJoin ? next.slice('/join/'.length) : undefined,
+      }));
+      // По ссылке клиента специалист подключается сразу при регистрации
+      nav(fromJoin ? '/clients' : next, { replace: true });
     } catch (e) {
       if (e instanceof ApiError && e.data?.fields) setErrors(e.data.fields);
       else setErr(e instanceof ApiError ? e.message : 'Не получилось зарегистрироваться');
@@ -108,9 +114,10 @@ export function RegisterPage() {
         <div className="card">
           <h1>Регистрация</h1>
           {fromInvite && <p className="muted">После регистрации вернём вас к&nbsp;приглашению специалиста</p>}
-          {!fromInvite && !open && <div className="mt-16"><Notice kind="plain" icon="lock">Регистрация по приглашению. Попросите специалиста прислать ссылку.</Notice></div>}
+          {fromJoin && <p className="muted">После регистрации сразу откроется кабинет клиента</p>}
+          {!fromInvite && !fromJoin && !open && <div className="mt-16"><Notice kind="plain" icon="lock">Регистрация по приглашению. Попросите специалиста прислать ссылку.</Notice></div>}
           <form className="stack mt-24" onSubmit={submit} noValidate>
-            {!fromInvite && (
+            {!fromInvite && !fromJoin && (
               <div className="role-pick" role="group" aria-label="Кто вы">
                 <button type="button" aria-pressed={role === 'client'} onClick={() => setRole('client')}><b>Клиент</b><span>Веду план приёма и&nbsp;дневник</span></button>
                 <button type="button" aria-pressed={role === 'specialist'} onClick={() => setRole('specialist')}><b>Специалист</b><span>Сопровождаю клиентов</span></button>

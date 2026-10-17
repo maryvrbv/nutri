@@ -81,6 +81,62 @@ export function acceptInvitation(db: DB, actor: User, t: string, replace: boolea
   });
 }
 
+// ---------- Клиент приглашает специалиста ----------
+// Клиент создаёт ссылку сам — это и есть его согласие на доступ. Специалист регистрируется
+// по ссылке (или входит в свой аккаунт) и сразу видит данные клиента.
+
+export function createSpecialistInvite(db: DB, actor: User) {
+  if (actor.role !== 'client') throw new HttpError(403, 'forbidden', 'Пригласить специалиста может только клиент');
+  const t = token();
+  const inv = { id: id(), expires_at: new Date(clock.now() + INVITE_DAYS * 86400_000).toISOString() };
+  tx(db, () => {
+    // Действует одна ссылка: новая отменяет прежние неиспользованные
+    run(db, 'UPDATE specialist_invites SET revoked_at = ? WHERE client_id = ? AND accepted_at IS NULL AND revoked_at IS NULL', nowIso(), actor.id);
+    run(db, 'INSERT INTO specialist_invites (id, client_id, token_hash, created_at, expires_at) VALUES (?,?,?,?,?)',
+      inv.id, actor.id, sha256(t), nowIso(), inv.expires_at);
+    audit(db, { actor: actor.id, client: actor.id, entity: 'access', entity_id: inv.id, action: 'specialist_invited' });
+  });
+  return { ...inv, token: t };
+}
+
+const spInvite = (db: DB, t: string) => get(db, `SELECT i.*, u.name AS client_name FROM specialist_invites i
+  JOIN users u ON u.id = i.client_id WHERE i.token_hash = ?`, sha256(String(t)));
+
+export function previewSpecialistInvite(db: DB, t: string) {
+  const inv = spInvite(db, t);
+  if (!inv) throw notFound();
+  return { state: invitationState(inv), client_name: inv.client_name, expires_at: inv.expires_at, scopes: SCOPES };
+}
+
+export function specialistInviteIsValid(db: DB, t: string) {
+  return invitationState(spInvite(db, t)) === 'valid';
+}
+
+export function acceptSpecialistInvite(db: DB, actor: User, t: string) {
+  if (actor.role !== 'specialist') throw new HttpError(403, 'forbidden', 'Ссылка для специалиста. Войдите в аккаунт специалиста.');
+  const inv = spInvite(db, t);
+  if (!inv) throw notFound();
+  const state = invitationState(inv);
+  if (state !== 'valid') throw new HttpError(410, state, state === 'expired' ? 'Срок действия ссылки истёк. Попросите прислать новую.' : 'Ссылка уже использована или отозвана');
+  if (inv.client_id === actor.id) throw bad('Нельзя подключиться к самому себе');
+  const current = activeLink(db, inv.client_id);
+  if (current?.specialist_id === actor.id) throw new HttpError(409, 'already_connected', 'Вы уже сопровождаете этого клиента');
+  return tx(db, () => {
+    const now = nowIso();
+    if (current) {
+      run(db, 'UPDATE care_links SET revoked_at = ?, revoked_by = ? WHERE id = ?', now, inv.client_id, current.id);
+      audit(db, { actor: inv.client_id, client: inv.client_id, entity: 'access', entity_id: current.id, action: 'revoked', data: { reason: 'replaced' } });
+    }
+    const linkId = id();
+    run(db, 'INSERT INTO care_links (id, client_id, specialist_id, invitation_id, scopes, consented_at) VALUES (?,?,?,NULL,?,?)',
+      linkId, inv.client_id, actor.id, JSON.stringify(SCOPES.map((s) => s.key)), inv.created_at);
+    run(db, 'UPDATE specialist_invites SET accepted_at = ?, accepted_by = ? WHERE id = ?', now, actor.id, inv.id);
+    audit(db, { actor: actor.id, client: inv.client_id, entity: 'access', entity_id: linkId, action: 'granted', data: { specialist_id: actor.id, via: 'client_invite' } });
+    notify(db, inv.client_id, { kind: 'specialist_connected', title: `${actor.name} теперь сопровождает вас`, public_title: 'Подключён специалист', link: '/settings/access' });
+    return { client_id: inv.client_id };
+  });
+}
+
 export function revokeAccess(db: DB, actor: User) {
   const link = activeLink(db, actor.id);
   if (!link) throw notFound();

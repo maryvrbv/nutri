@@ -80,3 +80,65 @@ export function InvitePage() {
     </div>
   );
 }
+
+/** Ссылка от клиента для специалиста: регистрация специалиста и подключение к клиенту. */
+export function JoinPage() {
+  const { token = '' } = useParams();
+  const { me } = useAuth();
+  const nav = useNavigate();
+  const inv = useData(() => api.get(`/join/${token}`), [token]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const accept = async () => {
+    setBusy(true); setErr('');
+    try {
+      const r = await api.post<{ client_id: string }>(`/join/${token}/accept`, {});
+      nav(`/clients/${r.client_id}`, { replace: true });
+    } catch (e) { setErr(errorText(e)); } finally { setBusy(false); }
+  };
+  const next = encodeURIComponent(`/join/${token}`);
+  return (
+    <div className="auth">
+      <div className="auth-card">
+        <div className="brand" style={{ padding: '0 0 20px' }}><span className="brand-mark"><Icon name="leaf" size={18} /></span> Нутри</div>
+        <div className="card">
+          {!inv.data ? <Loader error={inv.error} /> : inv.data.state !== 'valid' ? (
+            <div className="stack">
+              <h1>Ссылка недействительна</h1>
+              <p className="muted">{inv.data.state === 'expired' ? 'Срок действия ссылки истёк.' : 'Ссылка уже использована или отозвана.'} Попросите клиента прислать новую.</p>
+              {me && <Link className="btn block" to="/">На главную</Link>}
+            </div>
+          ) : (
+            <div className="stack" style={{ '--gap': '16px' } as any}>
+              <div>
+                <p className="muted small">Приглашение для специалиста</p>
+                <h1 style={{ marginTop: 4 }}>{inv.data.client_name}</h1>
+                <p className="muted">приглашает вас вести сопровождение</p>
+              </div>
+              <div>
+                <h3>Вы увидите</h3>
+                <ul className="stack mt-8" style={{ '--gap': '8px', listStyle: 'none', padding: 0, margin: '10px 0 0' } as any}>
+                  {inv.data.scopes.map((s: any) => (
+                    <li key={s.key} className="row top small"><Icon name="check" size={18} className="chev" /><span>{s.label}</span></li>
+                  ))}
+                </ul>
+              </div>
+              {!me && (
+                <>
+                  <Link className="btn primary block" to={`/register?next=${next}`}>Создать аккаунт специалиста</Link>
+                  <Link className="btn block" to={`/login?next=${next}`}>У меня уже есть аккаунт</Link>
+                </>
+              )}
+              {me && me.role === 'client' && <Notice kind="warn">Вы вошли как клиент. Эта ссылка для специалиста: выйдите и создайте аккаунт специалиста с другой почтой.</Notice>}
+              {me && me.role === 'specialist' && (
+                <button className="btn primary block" disabled={busy} onClick={accept}>{busy ? 'Подключаем…' : 'Начать сопровождение'}</button>
+              )}
+              {err && <Notice kind="danger">{err}</Notice>}
+              <p className="subtle">Ссылка действует до {fmtDate(inv.data.expires_at, { year: true })}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

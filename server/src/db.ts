@@ -294,6 +294,19 @@ const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN birth_date TEXT;
   UPDATE results SET ref_source = 'lab' WHERE ref_low IS NOT NULL OR ref_high IS NOT NULL;
   `,
+  // Приглашение специалиста от клиента: клиент сам открывает доступ своему специалисту
+  `
+  CREATE TABLE specialist_invites (
+    id          TEXT PRIMARY KEY,
+    client_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash  TEXT NOT NULL UNIQUE,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    accepted_at TEXT,
+    accepted_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    revoked_at  TEXT
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {

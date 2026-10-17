@@ -146,7 +146,12 @@ export function MorePage() {
               <div className="grow"><div className="small muted">Вас сопровождает</div><div className="list-title">{access.data.active.specialist_name}</div></div>
               <Link to="/settings/access" className="btn small ghost">Доступ</Link>
             </div>
-          ) : <p className="small muted">{ty('Специалист пока не подключён. Попросите у него ссылку-приглашение.')}</p>}
+          ) : (
+            <div className="row">
+              <p className="small muted grow" style={{ margin: 0 }}>{ty('Специалист пока не подключён')}</p>
+              <Link to="/settings/access" className="btn small">Пригласить</Link>
+            </div>
+          )}
         </div>
       )}
       <div className="card"><div className="list">
@@ -253,6 +258,42 @@ function DeleteAccount() {
   );
 }
 
+/** Клиент сам зовёт своего специалиста: ссылка открывает регистрацию специалиста с доступом к этому кабинету. */
+function InviteSpecialist({ replacing }: { replacing?: string }) {
+  const toast = useToast();
+  const [link, setLink] = useState<{ url: string; expires_at: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const create = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post<{ token: string; expires_at: string }>('/me/specialist-invite', {});
+      setLink({ url: `${location.origin}/join/${r.token}`, expires_at: r.expires_at });
+    } catch (e) { toast(errorText(e)); } finally { setBusy(false); }
+  };
+  const share = async () => {
+    if (!link) return;
+    if (navigator.share) { try { await navigator.share({ title: 'Нутри', text: 'Приглашаю вести моё сопровождение', url: link.url }); return; } catch { /* отменили */ } }
+    try { await navigator.clipboard.writeText(link.url); toast('Ссылка скопирована'); } catch { toast('Скопируйте ссылку вручную'); }
+  };
+  return (
+    <div className="card stack">
+      <h3>{replacing ? 'Сменить специалиста' : 'Пригласить специалиста'}</h3>
+      <p className="small muted">{ty(replacing
+        ? `Отправьте ссылку новому специалисту. Когда он подключится, у ${replacing} доступ закроется. Ваша история сохранится.`
+        : 'Отправьте ссылку своему нутрициологу или врачу. По ней он создаст аккаунт специалиста и сразу увидит ваши анализы, схемы и дневник.')}</p>
+      {link ? (
+        <>
+          <input className="input" readOnly value={link.url} onFocus={(e) => e.target.select()} aria-label="Ссылка для специалиста" />
+          <button className="btn primary block" onClick={share}><Icon name="link" />Отправить ссылку</button>
+          <p className="subtle">Действует до {fmtDate(link.expires_at, { year: true })}. Новая ссылка отменяет прежнюю.</p>
+        </>
+      ) : (
+        <button className="btn block" disabled={busy} onClick={create}><Icon name="link" />{busy ? 'Создаём…' : 'Создать ссылку'}</button>
+      )}
+    </div>
+  );
+}
+
 export function AccessPage() {
   const a = useData(() => api.get('/me/access'), []);
   const toast = useToast();
@@ -274,8 +315,9 @@ export function AccessPage() {
               <button className="btn danger block" onClick={() => setConfirm(true)}>Закрыть доступ</button>
             </div>
           ) : (
-            <div className="card"><Notice kind="plain" icon="lock">{ty('Сейчас ни у кого нет доступа к вашим данным. Чтобы подключить специалиста, откройте его ссылку-приглашение.')}</Notice></div>
+            <div className="card"><Notice kind="plain" icon="lock">{ty('Сейчас ни у кого нет доступа к вашим данным')}</Notice></div>
           )}
+          <InviteSpecialist replacing={a.data.active?.specialist_name} />
           {a.data.history.length > 0 && (
             <div className="card">
               <h3>История доступа</h3>
