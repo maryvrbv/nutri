@@ -1,5 +1,5 @@
 import { all, get, run, tx, type DB, type Row } from './db.ts';
-import { HttpError, audit, bad, id, notFound, notify, nowIso, clock, type User } from './core.ts';
+import { HttpError, activeLink, audit, bad, id, notFound, notify, nowIso, clock, type User } from './core.ts';
 import { diffVersions, slotsFor, validateVersion, type ItemInput, type VersionInput } from './schedule.ts';
 import { addDays, ruDate, todayIn, zonedToUtc } from './time.ts';
 
@@ -48,11 +48,12 @@ function tzOf(db: DB, clientId: string) {
   return get<{ timezone: string }>(db, 'SELECT timezone FROM users WHERE id = ?', clientId)!.timezone;
 }
 
-export function createDraft(db: DB, actor: User, clientId: string, input: unknown) {
+export function createDraft(db: DB, actor: User, clientId: string, input: unknown, owner: { specialistId?: string; prescribedBy?: string | null } = {}) {
   const v = validateVersion(input);
   return tx(db, () => {
     const schemeId = id();
-    run(db, 'INSERT INTO schemes (id, client_id, specialist_id, created_at) VALUES (?,?,?,?)', schemeId, clientId, actor.id, nowIso());
+    run(db, 'INSERT INTO schemes (id, client_id, specialist_id, created_at, prescribed_by, added_by) VALUES (?,?,?,?,?,?)',
+      schemeId, clientId, owner.specialistId ?? actor.id, nowIso(), owner.prescribedBy ?? null, actor.id);
     const vid = id();
     run(db, `INSERT INTO scheme_versions (id, scheme_id, number, title, comment, start_date, end_date, control_date, created_at)
       VALUES (?,?,?,?,?,?,?,?,?)`, vid, schemeId, 1, v.title, v.comment ?? '', v.start_date, v.end_date, v.control_date ?? null, nowIso());
@@ -192,6 +193,18 @@ export function publish(db: DB, actor: User, schemeId: string, opts: { effective
  * Приёмы генерируются только с сегодняшнего дня, поэтому прошлые схемы не дают «пропусков» в статистике.
  */
 export function importSchemes(db: DB, actor: User, clientId: string, input: unknown) {
+  // Клиент переносит сам: указывает своего специалиста или другого (по имени, можно без имени)
+  let owner: { specialistId?: string; prescribedBy?: string | null } = {};
+  if (actor.role === 'client') {
+    const by = (input as any)?.prescribed_by;
+    if (by === 'mine') {
+      const link = activeLink(db, clientId);
+      if (!link) throw bad('Специалист не подключён — выберите «Другой специалист»');
+      owner = { specialistId: link.specialist_id };
+    } else {
+      owner = { specialistId: clientId, prescribedBy: String((input as any)?.specialist_name ?? '').trim().slice(0, 120) };
+    }
+  }
   const list = Array.isArray((input as any)?.schemes) ? (input as any).schemes : [];
   if (!list.length || list.length > 50) throw bad('В файле нет схем');
   list.forEach((v: any, i: number) => {
@@ -199,8 +212,8 @@ export function importSchemes(db: DB, actor: User, clientId: string, input: unkn
   });
   const today = todayIn(tzOf(db, clientId), clock.now());
   return tx(db, () => list.map((v: any) => {
-    const { scheme_id } = createDraft(db, actor, clientId, v);
-    publish(db, actor, scheme_id, { silent: v.end_date < today });
+    const { scheme_id } = createDraft(db, actor, clientId, v, owner);
+    publish(db, actor, scheme_id, { silent: actor.role === 'client' || v.end_date < today });
     return scheme_id;
   }));
 }
@@ -243,10 +256,12 @@ export function schemeView(db: DB, schemeId: string, opts: { includeDraft: boole
     .map((v): Row => ({ ...v, changes: v.changes ? JSON.parse(v.changes) : null, items: versionItems(db, v.id) }));
   const published = latestPublished(db, schemeId);
   const specialist = get(db, 'SELECT name FROM users WHERE id = ?', scheme.specialist_id);
+  const other = scheme.specialist_id === scheme.client_id;
   return {
     id: scheme.id,
     client_id: scheme.client_id,
-    specialist_name: specialist?.name ?? 'Специалист',
+    specialist_name: other ? (scheme.prescribed_by || 'Другой специалист') : specialist?.name ?? 'Специалист',
+    added_by_client: scheme.added_by === scheme.client_id,
     status: schemeStatus(scheme, published, today),
     created_at: scheme.created_at,
     cancelled_at: scheme.cancelled_at,

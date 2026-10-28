@@ -55,7 +55,7 @@ function SchemeCard({ s }: { s: Scheme }) {
       <div className="row between top">
         <div className="grow">
           <h2>{v.title}</h2>
-          <p className="small muted">{s.specialist_name} · опубликовано {fmtDate(v.published_at!.slice(0, 10))}</p>
+          <p className="small muted">{s.added_by_client ? `Назначил(-а): ${s.specialist_name} · добавлено вами` : `${s.specialist_name} · опубликовано ${fmtDate(v.published_at!.slice(0, 10))}`}</p>
         </div>
         <SchemeBadge status={s.status} />
       </div>
@@ -201,6 +201,48 @@ function Plan({ schemes, all }: { schemes: Scheme[]; all: Scheme[] }) {
   );
 }
 
+// ---------- Перенос схем самим клиентом ----------
+
+function ImportOwn({ onDone }: { onDone: () => void }) {
+  const access = useData(() => api.get('/me/access'), []);
+  const mine: string | undefined = access.data?.active?.specialist_name;
+  const [by, setBy] = useState<'mine' | 'other' | null>(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const toast = useToast();
+  const who = by ?? (mine ? 'mine' : 'other');
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setErr('');
+    try {
+      const data = JSON.parse(await file.text());
+      const body = { ...(Array.isArray(data) ? { schemes: data } : data), prescribed_by: who, specialist_name: name };
+      const r = await api.post<{ imported: number }>('/clients/me/schemes/import', body);
+      toast(`Перенесено схем: ${r.imported}`);
+      onDone();
+    } catch (e) { setErr(e instanceof SyntaxError ? 'Файл не похож на схемы: нужен .json' : errorText(e)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="card stack">
+      <div><h3>Перенести схемы из файла</h3><p className="small muted">{ty('Схемы, которые назначали раньше или вне сервиса. Прошлые попадут в историю, текущие — в план.')}</p></div>
+      <div>
+        <div className="label">Кто назначил</div>
+        <div className="mt-8"><Seg label="Кто назначил" value={who} onChange={(v) => setBy(v)}
+          options={[...(mine ? [{ value: 'mine' as const, label: mine }] : []), { value: 'other' as const, label: 'Другой специалист' }]} /></div>
+      </div>
+      {who === 'other' && (
+        <Field label="Имя специалиста" htmlFor="imp-name" hint="Необязательно"><input id="imp-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Анна Петрова" /></Field>
+      )}
+      <label className={`btn outline block${busy ? ' disabled' : ''}`}>
+        <Icon name="upload" />{busy ? 'Переносим…' : 'Выбрать файл'}
+        <input type="file" accept=".json,application/json" hidden disabled={busy} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+      </label>
+      {err && <p className="small" style={{ color: 'var(--danger)' }} role="alert">{err}</p>}
+    </div>
+  );
+}
+
 // ---------- Календарь на неделю ----------
 
 function occurs(it: SchemeItem, d: string) {
@@ -295,6 +337,7 @@ export function SchemePage() {
           <Plan schemes={current} all={list.data.filter((s) => s.current && s.status !== 'cancelled' && s.status !== 'draft')} />
           {current.length > 0 && <h2 style={{ margin: '8px 0 -6px' }}>{current.length > 1 ? 'Схемы специалиста' : 'Схема специалиста'}</h2>}
           {current.map((s) => <SchemeCard key={s.id} s={s} />)}
+          <ImportOwn onDone={list.reload} />
           {past.length > 0 && (
             <div>
               <h2 style={{ marginBottom: 10 }}>Завершённые и отменённые</h2>

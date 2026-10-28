@@ -322,7 +322,8 @@ export function createApp(deps: AppDeps) {
     return schemes.createDraft(db, u, cid, req.body);
   }));
   app.post('/api/clients/:clientId/schemes/import', h((req) => {
-    const { u, cid } = client(req); requireRole(u, 'specialist');
+    const { u, cid } = client(req);
+    if (u.role === 'client' && cid !== u.id) throw notFound();
     return { imported: schemes.importSchemes(db, u, cid, req.body).length };
   }));
   app.post('/api/schemes/preview', h((req) => {

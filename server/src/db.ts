@@ -307,6 +307,11 @@ const MIGRATIONS: string[] = [
     revoked_at  TEXT
   );
   `,
+  // Схемы, которые клиент перенёс сам: кто назначил (свободный текст) и кто добавил
+  `
+  ALTER TABLE schemes ADD COLUMN prescribed_by TEXT;
+  ALTER TABLE schemes ADD COLUMN added_by TEXT;
+  `,
 ];
 
 export function openDb(file: string): DB {

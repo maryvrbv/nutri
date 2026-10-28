@@ -514,5 +514,16 @@ test('Перенос схем из файла: прошлые — в истор�
   assert.equal(await count(), before, 'о прошлых схемах не уведомляем');
   const bad = await specialist.post(`/api/clients/${clientId}/schemes/import`, { schemes: [{ ...past, items: [] }] });
   assert.equal(bad.status, 400);
-  assert.equal((await client.post(`/api/clients/${clientId}/schemes/import`, { schemes: [past] })).status, 403);
+  // Клиент переносит сам: свой специалист или другой
+  const mine = await client.post('/api/clients/me/schemes/import', { schemes: [{ ...past, title: 'От моего' }], prescribed_by: 'mine' });
+  assert.equal(mine.status, 200);
+  const other = await client.post('/api/clients/me/schemes/import', { schemes: [{ ...past, title: 'От другого' }], prescribed_by: 'other', specialist_name: 'Доктор Петрова' });
+  assert.equal(other.status, 200);
+  const all = (await client.get('/api/clients/me/schemes')).body;
+  assert.equal(all.find((s: any) => s.current.title === 'От моего').specialist_name, 'Ольга');
+  const o = all.find((s: any) => s.current.title === 'От другого');
+  assert.equal(o.specialist_name, 'Доктор Петрова');
+  assert.equal(o.added_by_client, true);
+  assert.equal((await specialist.get(`/api/clients/${clientId}/schemes`)).body.length, 3, 'специалист видит и перенесённые клиентом');
+  assert.equal((await client.post(`/api/clients/${c.body.id === clientId ? 'nope' : clientId}/schemes/import`, { schemes: [past] })).status, 404);
 });

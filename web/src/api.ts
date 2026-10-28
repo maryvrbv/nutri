@@ -72,7 +72,7 @@ export type Version = {
   items: SchemeItem[];
 };
 export type Scheme = {
-  id: string; client_id: string; specialist_name: string; status: 'draft' | 'scheduled' | 'active' | 'completed' | 'cancelled';
+  id: string; client_id: string; specialist_name: string; added_by_client?: boolean; status: 'draft' | 'scheduled' | 'active' | 'completed' | 'cancelled';
   created_at: string; cancelled_at: string | null; cancel_reason: string | null; current: Version | null; draft: Version | null; versions: Version[]; today: string;
 };
 
