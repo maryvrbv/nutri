@@ -178,7 +178,7 @@ function Plan({ schemes, all }: { schemes: Scheme[]; all: Scheme[] }) {
   const rows = planRows(schemes.filter((s) => s.status === 'active'), own.data ?? [], today);
   return (
     <div className="card">
-      <div style={{ marginBottom: 16 }}><Seg label="Вид" value={view} onChange={pickView} options={[{ value: 'list', label: 'Список' }, { value: 'week', label: 'Неделя' }, { value: 'month', label: 'Месяц' }]} /></div>
+      <div style={{ marginBottom: 16 }}><Seg label="Вид" value={view} onChange={pickView} options={[{ value: 'list', label: 'Сегодня' }, { value: 'week', label: 'Неделя' }, { value: 'month', label: 'Месяц' }]} /></div>
       {!own.data ? <Loader error={own.error} /> : view === 'week' ? <WeekView schemes={all} own={own.data} today={today} />
         : view === 'month' ? <MonthView schemes={all} own={own.data} today={today} /> : rows.length === 0 ? (
         <Empty icon="pill" title="План пока пуст">{ty('Здесь будет всё, что вы принимаете: схема специалиста и ваши добавки')}</Empty>
