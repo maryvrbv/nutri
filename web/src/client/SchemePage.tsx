@@ -166,8 +166,9 @@ function PlanItem({ r, onDelete }: { r: PlanRow; onDelete: (id: string, name: st
 function Plan({ schemes, all }: { schemes: Scheme[]; all: Scheme[] }) {
   const own = useData(() => api.get<any[]>('/clients/me/self-supplements'), []);
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<'list' | 'week'>(() => { try { return localStorage.getItem('nutri-plan-view') === 'week' ? 'week' : 'list'; } catch { return 'list'; } });
-  const pickView = (v: 'list' | 'week') => { setView(v); try { localStorage.setItem('nutri-plan-view', v); } catch { /* без хранилища */ } };
+  type View = 'list' | 'week' | 'month';
+  const [view, setView] = useState<View>(() => { try { const v = localStorage.getItem('nutri-plan-view'); return v === 'week' || v === 'month' ? v : 'list'; } catch { return 'list'; } });
+  const pickView = (v: View) => { setView(v); try { localStorage.setItem('nutri-plan-view', v); } catch { /* без хранилища */ } };
   const toast = useToast();
   const today = all[0]?.today ?? schemes[0]?.today ?? new Date().toISOString().slice(0, 10);
   const del = async (id: string, name: string) => {
@@ -177,8 +178,9 @@ function Plan({ schemes, all }: { schemes: Scheme[]; all: Scheme[] }) {
   const rows = planRows(schemes.filter((s) => s.status === 'active'), own.data ?? [], today);
   return (
     <div className="card">
-      <div style={{ marginBottom: 16 }}><Seg label="Вид" value={view} onChange={pickView} options={[{ value: 'list', label: 'Список' }, { value: 'week', label: 'Неделя' }]} /></div>
-      {!own.data ? <Loader error={own.error} /> : view === 'week' ? <WeekView schemes={all} own={own.data} today={today} /> : rows.length === 0 ? (
+      <div style={{ marginBottom: 16 }}><Seg label="Вид" value={view} onChange={pickView} options={[{ value: 'list', label: 'Список' }, { value: 'week', label: 'Неделя' }, { value: 'month', label: 'Месяц' }]} /></div>
+      {!own.data ? <Loader error={own.error} /> : view === 'week' ? <WeekView schemes={all} own={own.data} today={today} />
+        : view === 'month' ? <MonthView schemes={all} own={own.data} today={today} /> : rows.length === 0 ? (
         <Empty icon="pill" title="План пока пуст">{ty('Здесь будет всё, что вы принимаете: схема специалиста и ваши добавки')}</Empty>
       ) : (
         <div className="stack" style={{ '--gap': '20px' } as any}>
@@ -272,13 +274,13 @@ function calRows(schemes: Scheme[], own: any[], days: string[]): CalRow[] {
     map.set(r.key, prev ? { ...prev, on: (d) => prev.on(d) || r.on(d) } : r);
   };
   for (const s of schemes) for (const it of s.current!.items) {
-    if (it.end_date < days[0] || it.start_date > days[6]) continue;
+    if (it.end_date < days[0] || it.start_date > days[days.length - 1]) continue;
     const parts = new Set(it.doses.map((d) => (d.time ? partOfTime(d.time) : (d.part as PartKey) ?? 'any')));
     const sub = amountLabel(it.amount, it.amount_unit) + (it.substance_amount != null && it.substance_amount !== '' ? ` · ${amountLabel(it.substance_amount, it.substance_unit ?? '')}` : '');
     for (const part of parts) add({ key: `s|${part}|${it.name}|${sub}`, part, name: it.name, sub, own: false, on: (d) => occurs(it, d) });
   }
   for (const o of own) {
-    if ((o.end_date && o.end_date < days[0]) || (o.start_date && o.start_date > days[6])) continue;
+    if ((o.end_date && o.end_date < days[0]) || (o.start_date && o.start_date > days[days.length - 1])) continue;
     for (const part of partsOfText(o.schedule ?? '')) {
       add({ key: `o|${part}|${o.id}`, part, name: o.name, sub: o.amount ?? '', own: true,
         on: (d) => (!o.start_date || o.start_date <= d) && (!o.end_date || o.end_date >= d) });
@@ -330,6 +332,75 @@ function WeekView({ schemes, own, today }: { schemes: Scheme[]; own: any[]; toda
         </div>
       )}
       <p className="small muted mt-8"><i className="week-dot own-dot" /> {ty('— своё, вне схемы')}</p>
+    </div>
+  );
+}
+
+// ---------- Календарь на месяц ----------
+
+const MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+function MonthView({ schemes, own, today }: { schemes: Scheme[]; own: any[]; today: string }) {
+  const [month, setMonth] = useState(today.slice(0, 7));
+  const [picked, setPicked] = useState(today);
+  const first = `${month}-01`;
+  const shift = (n: number) => {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
+    setMonth(d);
+    setPicked(today.startsWith(d) ? today : `${d}-01`);
+  };
+  const len = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+  const days = Array.from({ length: len }, (_, i) => addDays(first, i));
+  const rows = calRows(schemes, own, days);
+  const lead = weekdayIdx(first) - 1;
+  const dayRows = rows.filter((r) => r.on(picked));
+  return (
+    <div>
+      <div className="row between">
+        <button className="btn ghost icon small" onClick={() => shift(-1)} aria-label="Предыдущий месяц"><Icon name="left" size={18} /></button>
+        <button className="btn ghost small" onClick={() => { setMonth(today.slice(0, 7)); setPicked(today); }} disabled={today.startsWith(month)}>
+          {MONTH_NAMES[Number(month.slice(5, 7)) - 1]} {month.slice(0, 4)}
+        </button>
+        <button className="btn ghost icon small" onClick={() => shift(1)} aria-label="Следующий месяц"><Icon name="right" size={18} /></button>
+      </div>
+      <div className="month mt-8">
+        {WD_SHORT.map((w) => <span key={w} className="month-wd">{w}</span>)}
+        {Array.from({ length: lead }, (_, i) => <span key={`e${i}`} />)}
+        {days.map((d) => {
+          const on = rows.filter((r) => r.on(d));
+          const parts = PARTS.filter((p) => on.some((r) => r.part === p.key));
+          return (
+            <button key={d} type="button" className={`month-day${d === today ? ' is-today' : ''}${on.length ? ' has' : ''}`} aria-pressed={d === picked}
+              onClick={() => setPicked(d)} aria-label={`${fmtShort(d)}: ${on.length ? `приёмов ${on.length}` : 'приёмов нет'}`}>
+              <b>{Number(d.slice(8))}</b>
+              <span className="month-dots">{parts.map((p) => <i key={p.key} className={`p-${p.key}`} />)}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="month-legend small muted mt-8">
+        {PARTS.filter((p) => p.key !== 'any').map((p) => <span key={p.key}><i className={`p-${p.key}`} />{p.label.toLowerCase()}</span>)}
+      </div>
+      <h3 className="mt-16">{fmtDate(picked, { year: !picked.startsWith(today.slice(0, 4)) })}, {WD_SHORT[weekdayIdx(picked) - 1]}</h3>
+      {dayRows.length === 0 ? <p className="small muted">{ty('В этот день приёмов нет')}</p> : PARTS.map((p) => {
+        const list = dayRows.filter((r) => r.part === p.key);
+        if (!list.length) return null;
+        return (
+          <section key={p.key}>
+            <div className="week-part">{p.label}</div>
+            <div className="list">
+              {list.map((r) => (
+                <div key={r.key} className={`list-item plan-item${r.own ? ' own' : ''}`}>
+                  <span className="item-num" aria-hidden="true"><Icon name={r.own ? 'leaf' : 'pill'} size={16} /></span>
+                  <div className="grow"><div className="list-title">{r.name}</div>{r.sub && <div className="small muted">{r.sub}</div>}</div>
+                  {r.own && <span className="badge auto">Своё</span>}
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
