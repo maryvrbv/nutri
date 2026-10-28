@@ -212,20 +212,22 @@ function ImportOwn({ onDone }: { onDone: () => void }) {
   const [err, setErr] = useState('');
   const toast = useToast();
   const who = by ?? (mine ? 'mine' : 'other');
-  const pick = async (file: File | undefined) => {
-    if (!file) return;
+  const [text, setText] = useState('');
+  const send = async (raw: string) => {
     setBusy(true); setErr('');
     try {
-      const data = JSON.parse(await file.text());
+      const data = JSON.parse(raw);
       const body = { ...(Array.isArray(data) ? { schemes: data } : data), prescribed_by: who, specialist_name: name };
       const r = await api.post<{ imported: number }>('/clients/me/schemes/import', body);
       toast(`Перенесено схем: ${r.imported}`);
+      setText('');
       onDone();
-    } catch (e) { setErr(e instanceof SyntaxError ? 'Файл не похож на схемы: нужен .json' : errorText(e)); } finally { setBusy(false); }
+    } catch (e) { setErr(e instanceof SyntaxError ? 'Не похоже на схемы: скопируйте текст целиком, от первой { до последней }' : errorText(e)); } finally { setBusy(false); }
   };
+  const pick = async (file: File | undefined) => { if (file) await send(await file.text()); };
   return (
     <div className="card stack">
-      <div><h3>Перенести схемы из файла</h3><p className="small muted">{ty('Схемы, которые назначали раньше или вне сервиса. Прошлые попадут в историю, текущие — в план.')}</p></div>
+      <div><h3>Перенести схемы</h3><p className="small muted">{ty('Схемы, которые назначали раньше или вне сервиса. Прошлые попадут в историю, текущие — в план.')}</p></div>
       <div>
         <div className="label">Кто назначил</div>
         <div className="mt-8"><Seg label="Кто назначил" value={who} onChange={(v) => setBy(v)}
@@ -234,10 +236,17 @@ function ImportOwn({ onDone }: { onDone: () => void }) {
       {who === 'other' && (
         <Field label="Имя специалиста" htmlFor="imp-name" hint="Необязательно"><input id="imp-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Анна Петрова" /></Field>
       )}
-      <label className={`btn outline block${busy ? ' disabled' : ''}`}>
-        <Icon name="upload" />{busy ? 'Переносим…' : 'Выбрать файл'}
-        <input type="file" accept=".json,application/json" hidden disabled={busy} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
-      </label>
+      <Field label="Текст схем" htmlFor="imp-text" hint="Вставьте скопированный текст или выберите файл">
+        <textarea id="imp-text" className="textarea" rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder='{"schemes": [...]}' spellCheck={false} />
+      </Field>
+      {text.trim() ? (
+        <button className="btn primary block" disabled={busy} onClick={() => send(text)}>{busy ? 'Переносим…' : 'Перенести'}</button>
+      ) : (
+        <label className={`btn outline block${busy ? ' disabled' : ''}`}>
+          <Icon name="upload" />{busy ? 'Переносим…' : 'Выбрать файл'}
+          <input type="file" accept=".json,application/json,text/plain" hidden disabled={busy} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+        </label>
+      )}
       {err && <p className="small" style={{ color: 'var(--danger)' }} role="alert">{err}</p>}
     </div>
   );
