@@ -519,6 +519,8 @@ test('Перенос схем из файла: прошлые — в истор�
   assert.equal(mine.status, 200);
   const other = await client.post('/api/clients/me/schemes/import', { schemes: [{ ...past, title: 'От другого' }], prescribed_by: 'other', specialist_name: 'Доктор Петрова' });
   assert.equal(other.status, 200);
+  const again = await client.post('/api/clients/me/schemes/import', { schemes: [{ ...past, title: 'От другого' }], prescribed_by: 'other' });
+  assert.equal(again.body.imported, 0, 'повторный перенос не дублирует');
   const all = (await client.get('/api/clients/me/schemes')).body;
   assert.equal(all.find((s: any) => s.current.title === 'От моего').specialist_name, 'Ольга');
   const o = all.find((s: any) => s.current.title === 'От другого');

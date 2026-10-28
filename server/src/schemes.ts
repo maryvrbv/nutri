@@ -211,7 +211,10 @@ export function importSchemes(db: DB, actor: User, clientId: string, input: unkn
     try { validateVersion(v); } catch (e: any) { throw bad(`Схема ${i + 1} «${v?.title ?? ''}»: ${e.message}`, { fields: e.fields }); }
   });
   const today = todayIn(tzOf(db, clientId), clock.now());
-  return tx(db, () => list.map((v: any) => {
+  // Повторный перенос того же файла не создаёт дублей: схема с тем же названием и датами пропускается
+  const exists = (v: any) => !!get(db, `SELECT 1 FROM schemes s JOIN scheme_versions sv ON sv.scheme_id = s.id
+    WHERE s.client_id = ? AND sv.number = 1 AND sv.title = ? AND sv.start_date = ? AND sv.end_date = ?`, clientId, String(v.title).trim(), v.start_date, v.end_date);
+  return tx(db, () => list.filter((v: any) => !exists(v)).map((v: any) => {
     const { scheme_id } = createDraft(db, actor, clientId, v, owner);
     publish(db, actor, scheme_id, { silent: actor.role === 'client' || v.end_date < today });
     return scheme_id;

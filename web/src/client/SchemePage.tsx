@@ -219,7 +219,7 @@ function ImportOwn({ onDone }: { onDone: () => void }) {
       const data = JSON.parse(raw);
       const body = { ...(Array.isArray(data) ? { schemes: data } : data), prescribed_by: who, specialist_name: name };
       const r = await api.post<{ imported: number }>('/clients/me/schemes/import', body);
-      toast(`Перенесено схем: ${r.imported}`);
+      toast(r.imported ? `Перенесено схем: ${r.imported}` : 'Эти схемы уже есть');
       setText('');
       onDone();
     } catch (e) { setErr(e instanceof SyntaxError ? 'Не похоже на схемы: скопируйте текст целиком, от первой { до последней }' : errorText(e)); } finally { setBusy(false); }
