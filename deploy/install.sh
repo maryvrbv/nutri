@@ -129,12 +129,17 @@ git -C $APP fetch -q origin "$BRANCH" || exit 0
 OLD=\$(git -C $APP rev-parse HEAD)
 NEW=\$(git -C $APP rev-parse "origin/$BRANCH")
 [ "\$OLD" = "\$NEW" ] && exit 0
+# Версию, которая уже не поставилась, не пробуем каждые 5 минут — ждём следующую
+FAILED=/var/lib/nutri-update-failed
+[ "\$(cat \$FAILED 2>/dev/null)" = "\$NEW" ] && exit 0
 echo "Обновление \${OLD:0:7} → \${NEW:0:7}"
 sudo -u nutri /usr/local/bin/nutri-backup || true
 healthy() { for i in \$(seq 1 20); do curl -fsS -o /dev/null http://localhost:3000/api/auth/options && return 0; sleep 1; done; return 1; }
 if git -C $APP reset -q --hard "\$NEW" && bash $APP/deploy/install.sh && healthy; then
+  rm -f \$FAILED
   echo "Готово"
 else
+  echo "\$NEW" > \$FAILED
   echo "Не получилось — возвращаю \${OLD:0:7}"
   git -C $APP reset -q --hard "\$OLD"
   cd $APP && npm ci --no-audit --no-fund --loglevel=error && npm run build --silent >/dev/null
