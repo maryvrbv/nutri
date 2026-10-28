@@ -492,3 +492,27 @@ test('Клиент приглашает своего специалиста пр
   assert.equal((await doc.post(`/api/join/${inv.body.token}/accept`, {})).status, 410, 'ссылка одноразовая');
   await new Promise((res) => server.close(res));
 });
+
+test('Перенос схем из файла: прошлые — в историю без приёмов и уведомлений', async () => {
+  const past = { title: 'Прошлый курс', start_date: '2025-11-08', end_date: '2025-12-09', items: [
+    { name: 'Селен', form: 'capsule', amount: 1, amount_unit: 'капсула', substance_amount: 100, substance_unit: 'мкг', doses: [{ part: 'morning' }], frequency: { type: 'daily' }, food: 'any', start_date: '2025-11-08', end_date: '2025-12-09' },
+  ] };
+  const specialist = sp(), client = sp();
+  await specialist.post('/api/auth/register', { email: 'imp-doc@example.com', password: 'password123', name: 'Ольга', role: 'specialist' });
+  const inv = await specialist.post('/api/invitations', {});
+  const c = await client.post('/api/auth/register', { email: 'imp@example.com', password: 'password123', name: 'Ира' });
+  await client.post(`/api/invite/${inv.body.token}/accept`);
+  const clientId = c.body.id;
+  const count = async () => { const b = (await client.get('/api/notifications')).body; return (b.items ?? b).length; };
+  const before = await count();
+  const r = await specialist.post(`/api/clients/${clientId}/schemes/import`, { schemes: [past] });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.imported, 1);
+  const list = (await client.get('/api/clients/me/schemes')).body;
+  const imported = list.find((s: any) => s.current?.title === 'Прошлый курс');
+  assert.equal(imported.status, 'completed');
+  assert.equal(await count(), before, 'о прошлых схемах не уведомляем');
+  const bad = await specialist.post(`/api/clients/${clientId}/schemes/import`, { schemes: [{ ...past, items: [] }] });
+  assert.equal(bad.status, 400);
+  assert.equal((await client.post(`/api/clients/${clientId}/schemes/import`, { schemes: [past] })).status, 403);
+});

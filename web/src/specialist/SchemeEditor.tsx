@@ -9,22 +9,53 @@ export function SchemesTab() {
   const { id = '' } = useParams();
   const l = useData(() => api.get<Scheme[]>(`/clients/${id}/schemes`), [id]);
   if (!l.data) return <Loader error={l.error} />;
-  if (!l.data.length) return <div className="card"><Empty icon="pill" title="Схем пока нет"><Link to={`/clients/${id}/schemes/new`}>Создать первую схему</Link></Empty></div>;
   return (
-    <div className="card"><div className="list">
-      {l.data.map((s) => {
-        const v = s.current ?? s.draft!;
-        return (
-          <Link key={s.id} to={`/clients/${id}/schemes/${s.id}`} className="list-item">
-            <div className="grow">
-              <div className="list-title">{v.title}</div>
-              <div className="small muted">{fmtDate(v.start_date)} — {fmtDate(v.end_date, { year: true })} · {v.items.length} поз.{s.current ? ` · версия ${s.current.number}` : ''}{s.draft && s.current ? ' · есть черновик изменений' : ''}</div>
-            </div>
-            <SchemeBadge status={s.status} /><Icon name="right" className="chev" />
-          </Link>
-        );
-      })}
-    </div></div>
+    <div className="stack" style={{ '--gap': '16px' } as any}>
+      {!l.data.length ? <div className="card"><Empty icon="pill" title="Схем пока нет"><Link to={`/clients/${id}/schemes/new`}>Создать первую схему</Link></Empty></div> : (
+        <div className="card"><div className="list">
+          {l.data.map((s) => {
+            const v = s.current ?? s.draft!;
+            return (
+              <Link key={s.id} to={`/clients/${id}/schemes/${s.id}`} className="list-item">
+                <div className="grow">
+                  <div className="list-title">{v.title}</div>
+                  <div className="small muted">{fmtDate(v.start_date)} — {fmtDate(v.end_date, { year: true })} · {v.items.length} поз.{s.current ? ` · версия ${s.current.number}` : ''}{s.draft && s.current ? ' · есть черновик изменений' : ''}</div>
+                </div>
+                <SchemeBadge status={s.status} /><Icon name="right" className="chev" />
+              </Link>
+            );
+          })}
+        </div></div>
+      )}
+      <ImportSchemes clientId={id} onDone={l.reload} />
+    </div>
+  );
+}
+
+/** Перенос схем из файла: прошлые курсы попадают в историю без отметок, текущие — в план. */
+function ImportSchemes({ clientId, onDone }: { clientId: string; onDone: () => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setErr('');
+    try {
+      const data = JSON.parse(await file.text());
+      const r = await api.post<{ imported: number }>(`/clients/${clientId}/schemes/import`, Array.isArray(data) ? { schemes: data } : data);
+      toast(`Перенесено схем: ${r.imported}`);
+      onDone();
+    } catch (e) { setErr(e instanceof SyntaxError ? 'Файл не похож на схемы: нужен .json' : errorText(e)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="card stack">
+      <div><h3>Перенести схемы из файла</h3><p className="small muted">{ty('Файл .json со схемами. Прошлые курсы попадут в историю, текущие — сразу в план клиента.')}</p></div>
+      <label className={`btn outline block${busy ? ' disabled' : ''}`}>
+        <Icon name="upload" />{busy ? 'Переносим…' : 'Выбрать файл'}
+        <input type="file" accept=".json,application/json" hidden disabled={busy} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+      </label>
+      {err && <Notice kind="danger">{err}</Notice>}
+    </div>
   );
 }
 

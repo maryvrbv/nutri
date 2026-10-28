@@ -149,7 +149,7 @@ function generateIntakes(db: DB, clientId: string, schemeId: string, versionId: 
  * Для следующих — будущие неотмеченные приёмы прошлой версии заменяются начиная с даты вступления в силу,
  * а уже отмеченные остаются привязаны к той дозировке и инструкции, что действовали на момент приёма.
  */
-export function publish(db: DB, actor: User, schemeId: string, opts: { effective_from?: string } = {}) {
+export function publish(db: DB, actor: User, schemeId: string, opts: { effective_from?: string; silent?: boolean } = {}) {
   const scheme = get(db, 'SELECT * FROM schemes WHERE id = ?', schemeId);
   if (!scheme) throw notFound();
   if (scheme.cancelled_at) throw bad('Курс отменён');
@@ -180,11 +180,29 @@ export function publish(db: DB, actor: User, schemeId: string, opts: { effective
       nowIso(), actor.id, effective, changes ? JSON.stringify(changes) : null, draft.id);
     const n = generateIntakes(db, scheme.client_id, schemeId, draft.id, genFrom, tz);
     audit(db, { actor: actor.id, client: scheme.client_id, entity: 'scheme', entity_id: schemeId, action: prev ? 'version_published' : 'published', data: { number: draft.number, effective_from: effective, intakes: n, title: draft.title } });
-    notify(db, scheme.client_id, prev
+    if (!opts.silent) notify(db, scheme.client_id, prev
       ? { kind: 'scheme_updated', title: `Специалист обновил схему «${draft.title}»`, body: `Изменения действуют с ${ruDate(effective)}`, public_title: 'Обновление в схеме', link: `/scheme/${schemeId}` }
       : { kind: 'scheme_new', title: `Новая схема приёма: «${draft.title}»`, body: `Начало — ${ruDate(draft.start_date)}`, public_title: 'Новая схема приёма', link: `/scheme/${schemeId}` });
     return { version_id: draft.id as string, effective_from: effective, intakes: n, changes };
   });
+}
+
+/**
+ * Перенос прошлых и текущих схем из таблицы или другого сервиса: каждая схема создаётся и сразу публикуется.
+ * Приёмы генерируются только с сегодняшнего дня, поэтому прошлые схемы не дают «пропусков» в статистике.
+ */
+export function importSchemes(db: DB, actor: User, clientId: string, input: unknown) {
+  const list = Array.isArray((input as any)?.schemes) ? (input as any).schemes : [];
+  if (!list.length || list.length > 50) throw bad('В файле нет схем');
+  list.forEach((v: any, i: number) => {
+    try { validateVersion(v); } catch (e: any) { throw bad(`Схема ${i + 1} «${v?.title ?? ''}»: ${e.message}`, { fields: e.fields }); }
+  });
+  const today = todayIn(tzOf(db, clientId), clock.now());
+  return tx(db, () => list.map((v: any) => {
+    const { scheme_id } = createDraft(db, actor, clientId, v);
+    publish(db, actor, scheme_id, { silent: v.end_date < today });
+    return scheme_id;
+  }));
 }
 
 /** Отмена курса: будущие приёмы и напоминания отменяются, история сохраняется. */
