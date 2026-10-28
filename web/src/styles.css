@@ -575,3 +575,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
 :root:not([data-theme='pastel']) .chart .ev { stroke: var(--teal); }
 :root:not([data-theme='pastel']) .chart .evlabel { fill: var(--teal); }
 :root:not([data-theme='pastel']) td a.row, :root:not([data-theme='pastel']) a.row { text-decoration: none; }
+
+/* Общий план: своё отличается цветом значка */
+.plan-part { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); margin: 0 0 4px; }
+.plan-item.own .item-num { background: var(--auto-soft); color: var(--auto); }
+:root:not([data-theme='pastel']) .plan-item.own .item-num { background: var(--lavender); color: var(--text); }

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, type Scheme, type SchemeItem, type Version } from '../api';
-import { amountLabel, doseLabel, fmtDate, FOOD_LABELS, FORM_LABELS, freqLabel, ty } from '../format';
+import { amountLabel, doseLabel, fmtDate, FOOD_LABELS, FORM_LABELS, freqLabel, PART_LABELS, ty } from '../format';
 import { Empty, Field, Icon, Loader, SchemeBadge, Sheet, errorText, useData, useToast } from '../ui';
 
 export function ItemView({ it, today }: { it: SchemeItem; today: string }) {
@@ -48,7 +48,6 @@ export function ChangesView({ v }: { v: Version }) {
 function SchemeCard({ s }: { s: Scheme }) {
   const v = s.current!;
   const items = [...v.items].sort((a, b) => a.start_date.localeCompare(b.start_date));
-  const now = items.filter((i) => i.start_date <= s.today && i.end_date >= s.today);
   const later = items.filter((i) => i.start_date > s.today);
   const updated = v.number > 1 && v.changes?.length;
   return (
@@ -71,9 +70,9 @@ function SchemeCard({ s }: { s: Scheme }) {
           <div className="mt-8"><ChangesView v={v} /></div>
         </div>
       ) : null}
-      <div className="list mt-8">
-        {(s.status === 'scheduled' ? items : now).map((it) => <ItemView key={it.id} it={it} today={s.today} />)}
-      </div>
+      {s.status === 'scheduled' && (
+        <div className="list mt-8">{items.map((it) => <ItemView key={it.id} it={it} today={s.today} />)}</div>
+      )}
       {s.status !== 'scheduled' && later.length > 0 && (
         <>
           <h3 className="mt-16">Следующие этапы</h3>
@@ -85,18 +84,132 @@ function SchemeCard({ s }: { s: Scheme }) {
   );
 }
 
+// ---------- Общий план: назначенное и своё вместе, по времени дня ----------
+
+const PARTS = [
+  { key: 'morning', label: 'Утро' },
+  { key: 'day', label: 'День' },
+  { key: 'evening', label: 'Вечер' },
+  { key: 'night', label: 'Перед сном' },
+  { key: 'any', label: 'Время не указано' },
+] as const;
+type PartKey = (typeof PARTS)[number]['key'];
+
+function partOfTime(t: string): PartKey {
+  const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  return m < 12 * 60 ? 'morning' : m < 17 * 60 ? 'day' : m < 21 * 60 + 30 ? 'evening' : 'night';
+}
+
+/** Время своей добавки записано словами: «утром и вечером», «перед сном», «09:00». */
+function partsOfText(text: string): PartKey[] {
+  const t = text.toLowerCase();
+  const out = new Set<PartKey>();
+  if (/утр/.test(t)) out.add('morning');
+  if (/(^|[^а-яё])(днём|днем|день)|обед/.test(t)) out.add('day');
+  if (/веч|ужин/.test(t)) out.add('evening');
+  if (/сном|до сна|ноч/.test(t)) out.add('night');
+  for (const m of t.matchAll(/\b(\d{1,2}):(\d{2})\b/g)) out.add(partOfTime(m[1].padStart(2, '0') + ':' + m[2]));
+  return out.size ? [...out] : ['any'];
+}
+
+type PlanRow = { key: string; part: PartKey; sort: string; own: boolean; name: string; sub: string; detail: string; note?: string; time?: string; ownId?: string; scheme?: string };
+
+function planRows(schemes: Scheme[], own: any[], today: string): PlanRow[] {
+  const rows: PlanRow[] = [];
+  const several = schemes.length > 1;
+  for (const s of schemes) {
+    for (const it of s.current!.items) {
+      if (it.start_date > today || it.end_date < today) continue;
+      it.doses.forEach((d, k) => {
+        const part: PartKey = d.time ? partOfTime(d.time) : (d.part as PartKey) ?? 'any';
+        rows.push({
+          key: `${it.id}-${k}`, part, sort: d.time ?? PART_LABELS[d.part!]?.time ?? '', own: false, name: it.name,
+          sub: [it.product, amountLabel(it.amount, it.amount_unit)].filter(Boolean).join(' · '),
+          detail: [freqLabel(it.frequency), FOOD_LABELS[it.food]?.toLowerCase(), `до ${fmtDate(it.end_date)}`].filter(Boolean).join(' · '),
+          note: it.instruction || undefined, time: d.time || undefined, scheme: several ? s.current!.title : undefined,
+        });
+      });
+    }
+  }
+  for (const o of own) {
+    if (o.end_date && o.end_date < today) continue;
+    for (const part of partsOfText(o.schedule ?? '')) {
+      rows.push({
+        key: `${o.id}-${part}`, part, sort: '99', own: true, name: o.name, sub: o.amount ?? '',
+        detail: [o.start_date && o.start_date > today ? `с ${fmtDate(o.start_date)}` : '', o.end_date ? `до ${fmtDate(o.end_date)}` : ''].filter(Boolean).join(' · '),
+        note: o.note || undefined, ownId: o.id,
+      });
+    }
+  }
+  return rows.sort((a, b) => a.sort.localeCompare(b.sort) || a.name.localeCompare(b.name));
+}
+
+function PlanItem({ r, onDelete }: { r: PlanRow; onDelete: (id: string, name: string) => void }) {
+  return (
+    <div className={`list-item plan-item${r.own ? ' own' : ''}`} style={{ alignItems: 'flex-start' }}>
+      <span className="item-num" aria-hidden="true"><Icon name={r.own ? 'leaf' : 'pill'} size={16} /></span>
+      <div className="grow">
+        <div className="row wrap between">
+          <span className="list-title">{r.name}</span>
+          {r.own ? <span className="badge auto">Своё</span> : r.time ? <span className="small muted num">{r.time}</span> : null}
+        </div>
+        {r.sub && <div><b>{r.sub}</b></div>}
+        {r.detail && <div className="small muted">{r.detail}</div>}
+        {r.scheme && <div className="small muted">{r.scheme}</div>}
+        {r.note && <div className="intake-note">{r.note}</div>}
+      </div>
+      {r.ownId && <button className="btn ghost icon small" onClick={() => onDelete(r.ownId!, r.name)} aria-label={`Удалить ${r.name}`}><Icon name="trash" size={18} /></button>}
+    </div>
+  );
+}
+
+function Plan({ schemes }: { schemes: Scheme[] }) {
+  const own = useData(() => api.get<any[]>('/clients/me/self-supplements'), []);
+  const [open, setOpen] = useState(false);
+  const toast = useToast();
+  const today = schemes[0]?.today ?? new Date().toISOString().slice(0, 10);
+  const del = async (id: string, name: string) => {
+    if (!confirm(`Убрать «${name}» из плана?`)) return;
+    try { await api.del(`/clients/me/self-supplements/${id}`); own.reload(); } catch (e) { toast(errorText(e)); }
+  };
+  const rows = planRows(schemes.filter((s) => s.status === 'active'), own.data ?? [], today);
+  return (
+    <div className="card">
+      {!own.data ? <Loader error={own.error} /> : rows.length === 0 ? (
+        <Empty icon="pill" title="План пока пуст">{ty('Здесь будет всё, что вы принимаете: схема специалиста и ваши добавки')}</Empty>
+      ) : (
+        <div className="stack" style={{ '--gap': '20px' } as any}>
+          {PARTS.map((p) => {
+            const list = rows.filter((r) => r.part === p.key);
+            if (!list.length) return null;
+            return (
+              <section key={p.key}>
+                <h3 className="plan-part">{p.label}</h3>
+                <div className="list">{list.map((r) => <PlanItem key={r.key} r={r} onDelete={del} />)}</div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+      <p className="small muted mt-16">{ty('«Своё» — то, что вы принимаете сами, вне схемы. Специалист это тоже видит.')}</p>
+      <button className="btn outline block mt-8" onClick={() => setOpen(true)}><Icon name="plus" />Добавить своё</button>
+      {open && <Sheet title="Своя добавка" onClose={() => setOpen(false)}><SelfForm onDone={() => { setOpen(false); own.reload(); }} /></Sheet>}
+    </div>
+  );
+}
+
 export function SchemePage() {
   const list = useData(() => api.get<Scheme[]>('/clients/me/schemes'), []);
   const current = list.data?.filter((s) => s.status === 'active' || s.status === 'scheduled') ?? [];
   const past = list.data?.filter((s) => s.status === 'completed' || s.status === 'cancelled') ?? [];
   return (
     <div className="page">
-      <div className="page-head"><div><div className="eyebrow">План от специалиста</div><h1>Моя схема</h1></div></div>
+      <div className="page-head"><div><div className="eyebrow">Что принимаю</div><h1>Моя схема</h1></div></div>
       {!list.data ? <Loader error={list.error} retry={list.reload} /> : (
         <div className="stack" style={{ '--gap': '16px' } as any}>
-          {current.length === 0 && <div className="card"><Empty icon="pill" title="Активной схемы нет">{ty('Схема появится здесь, когда специалист её опубликует. Мы пришлём уведомление.')}</Empty></div>}
+          <Plan schemes={current} />
+          {current.length > 0 && <h2 style={{ margin: '8px 0 -6px' }}>{current.length > 1 ? 'Схемы специалиста' : 'Схема специалиста'}</h2>}
           {current.map((s) => <SchemeCard key={s.id} s={s} />)}
-          <SelfSupplements />
           {past.length > 0 && (
             <div>
               <h2 style={{ marginBottom: 10 }}>Завершённые и отменённые</h2>
@@ -120,55 +233,32 @@ export function SchemePage() {
   );
 }
 
-function SelfSupplements() {
-  const list = useData(() => api.get<any[]>('/clients/me/self-supplements'), []);
-  const [open, setOpen] = useState(false);
-  const toast = useToast();
-  const del = async (id: string) => {
-    try { await api.del(`/clients/me/self-supplements/${id}`); list.reload(); } catch (e) { toast(errorText(e)); }
-  };
-  return (
-    <div className="card" id="self">
-      <div className="card-head">
-        <div><h2>Принимаю самостоятельно</h2><p className="small muted">{ty('То, что вы принимаете сами, вне схемы специалиста. Специалист это видит.')}</p></div>
-      </div>
-      {list.data?.length ? (
-        <div className="list">
-          {list.data.map((s) => (
-            <div key={s.id} className="list-item">
-              <Icon name="leaf" className="chev" />
-              <div className="grow">
-                <div className="list-title">{s.name}</div>
-                <div className="small muted">{[s.amount, s.schedule, s.start_date && `с ${fmtDate(s.start_date)}`, s.end_date && `до ${fmtDate(s.end_date)}`].filter(Boolean).join(' · ')}</div>
-                {s.note && <div className="small">{s.note}</div>}
-              </div>
-              <button className="btn ghost icon small" onClick={() => del(s.id)} aria-label={`Удалить ${s.name}`}><Icon name="trash" size={18} /></button>
-            </div>
-          ))}
-        </div>
-      ) : list.data ? <p className="small muted">Пока ничего не добавлено</p> : null}
-      <button className="btn outline block mt-16" onClick={() => setOpen(true)}><Icon name="plus" />Добавить</button>
-      {open && <Sheet title="Добавка вне схемы" onClose={() => setOpen(false)}><SelfForm onDone={() => { setOpen(false); list.reload(); }} /></Sheet>}
-    </div>
-  );
-}
-
 function SelfForm({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState({ name: '', amount: '', schedule: '', start_date: '', end_date: '', note: '' });
+  const [f, setF] = useState({ name: '', amount: '', start_date: '', end_date: '', note: '' });
+  const [parts, setParts] = useState<string[]>([]);
+  const toggle = (l: string) => setParts((p) => p.includes(l) ? p.filter((x) => x !== l) : [...p, l]);
   const [err, setErr] = useState('');
   const toast = useToast();
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!f.name.trim()) { setErr('Укажите название'); return; }
-    try { await api.post('/clients/me/self-supplements', f); toast('Добавлено'); onDone(); } catch (e) { setErr(errorText(e)); }
+    const schedule = PARTS.filter((p) => parts.includes(p.label)).map((p) => p.label.toLowerCase()).join(', ');
+    try { await api.post('/clients/me/self-supplements', { ...f, schedule }); toast('Добавлено'); onDone(); } catch (e) { setErr(errorText(e)); }
   };
   return (
     <form className="stack" onSubmit={submit}>
       <Field label="Название" htmlFor="ss-name" error={err}><input id="ss-name" className="input" value={f.name} onChange={set('name')} placeholder="Например, витамин C" /></Field>
+      <Field label="Сколько" htmlFor="ss-amount"><input id="ss-amount" className="input" value={f.amount} onChange={set('amount')} placeholder="1 таблетка" /></Field>
+      <div>
+        <div className="label">Когда</div>
+        <div className="chips mt-8" role="group" aria-label="Когда принимаю">
+          {PARTS.filter((p) => p.key !== 'any').map((p) => (
+            <button type="button" key={p.key} className="chip" aria-pressed={parts.includes(p.label)} onClick={() => toggle(p.label)}>{p.label}</button>
+          ))}
+        </div>
+      </div>
       <div className="grid-2">
-        <Field label="Сколько" htmlFor="ss-amount"><input id="ss-amount" className="input" value={f.amount} onChange={set('amount')} placeholder="1 таблетка" /></Field>
-        <Field label="Когда" htmlFor="ss-sch"><input id="ss-sch" className="input" value={f.schedule} onChange={set('schedule')} placeholder="утром" /></Field>
         <Field label="С какого дня" htmlFor="ss-s"><input id="ss-s" type="date" className="input" value={f.start_date} onChange={set('start_date')} /></Field>
         <Field label="До какого дня" htmlFor="ss-e"><input id="ss-e" type="date" className="input" value={f.end_date} onChange={set('end_date')} /></Field>
       </div>
