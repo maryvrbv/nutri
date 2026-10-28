@@ -353,7 +353,6 @@ function MonthView({ schemes, own, today }: { schemes: Scheme[]; own: any[]; tod
   const len = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
   const days = Array.from({ length: len }, (_, i) => addDays(first, i));
   const rows = calRows(schemes, own, days);
-  const lead = weekdayIdx(first) - 1;
   const dayRows = rows.filter((r) => r.on(picked));
   return (
     <div>
@@ -364,24 +363,46 @@ function MonthView({ schemes, own, today }: { schemes: Scheme[]; own: any[]; tod
         </button>
         <button className="btn ghost icon small" onClick={() => shift(1)} aria-label="Следующий месяц"><Icon name="right" size={18} /></button>
       </div>
-      <div className="month mt-8">
-        {WD_SHORT.map((w) => <span key={w} className="month-wd">{w}</span>)}
-        {Array.from({ length: lead }, (_, i) => <span key={`e${i}`} />)}
-        {days.map((d) => {
-          const on = rows.filter((r) => r.on(d));
-          const parts = PARTS.filter((p) => on.some((r) => r.part === p.key));
-          return (
-            <button key={d} type="button" className={`month-day${d === today ? ' is-today' : ''}${on.length ? ' has' : ''}`} aria-pressed={d === picked}
-              onClick={() => setPicked(d)} aria-label={`${fmtShort(d)}: ${on.length ? `приёмов ${on.length}` : 'приёмов нет'}`}>
-              <b>{Number(d.slice(8))}</b>
-              <span className="month-dots">{parts.map((p) => <i key={p.key} className={`p-${p.key}`} />)}</span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="month-legend small muted mt-8">
-        {PARTS.filter((p) => p.key !== 'any').map((p) => <span key={p.key}><i className={`p-${p.key}`} />{p.label.toLowerCase()}</span>)}
-      </div>
+      {rows.length === 0 ? <p className="small muted mt-16" style={{ textAlign: 'center' }}>{ty('В этом месяце приёмов нет')}</p> : (
+        <div className="gantt mt-8" style={{ '--days': len } as any} role="table" aria-label={`Приёмы за ${MONTH_NAMES[Number(month.slice(5, 7)) - 1].toLowerCase()}`}>
+          <div className="gantt-row gantt-head" role="row">
+            <span role="columnheader" />
+            <div className="gantt-track">
+              {days.map((d) => {
+                const n = Number(d.slice(8));
+                return (
+                  <button key={d} type="button" role="columnheader" className={`${d === today ? 'is-today' : ''}${weekdayIdx(d) === 1 ? ' mon' : ''}`} aria-pressed={d === picked}
+                    onClick={() => setPicked(d)} aria-label={fmtShort(d)}>
+                    {weekdayIdx(d) === 1 || (n === 1 && weekdayIdx(d) <= 4) ? n : ''}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {PARTS.map((p) => {
+            const list = rows.filter((r) => r.part === p.key);
+            if (!list.length) return null;
+            return (
+              <div key={p.key} role="rowgroup">
+                <div className="week-part">{p.label}</div>
+                {list.map((r) => (
+                  <div key={r.key} className={`gantt-row${r.own ? ' own' : ''}`} role="row">
+                    <span role="rowheader" className="week-name"><b>{r.name}</b>{r.sub && <small>{r.sub}</small>}</span>
+                    <div className="gantt-track">
+                      {days.map((d, i) => {
+                        const on = r.on(d);
+                        const cls = on ? `on${!(i > 0 && r.on(days[i - 1])) ? ' s' : ''}${!(i < days.length - 1 && r.on(days[i + 1])) ? ' e' : ''}` : '';
+                        return <span key={d} role="cell" onClick={() => setPicked(d)} className={`${cls}${d === picked ? ' picked' : ''}${d === today ? ' is-today' : ''}`} />;
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="small muted mt-8"><i className="week-dot own-dot" /> {ty('— своё, вне схемы. Нажмите на день, чтобы увидеть список')}</p>
       <h3 className="mt-16">{fmtDate(picked, { year: !picked.startsWith(today.slice(0, 4)) })}, {WD_SHORT[weekdayIdx(picked) - 1]}</h3>
       {dayRows.length === 0 ? <p className="small muted">{ty('В этот день приёмов нет')}</p> : PARTS.map((p) => {
         const list = dayRows.filter((r) => r.part === p.key);
